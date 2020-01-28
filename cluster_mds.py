@@ -14,17 +14,26 @@ def new_MDS(dist_matrix, n_medoids):
     """
     ## Clusters
     ind_medoids, ind_clusters = kmedoids.kMedoids(dist_matrix, n_medoids)
-                                #TODO 1: optimize this calculation (check kMedoids features)
+                                # TODO 1: optimize this calculation (check kMedoids features)
     # distance matrix per cluster
-    dist_clusters = [ [dist_matrix[ind_clusters[i]][j][ind_clusters[i]] 
-                     for j in range(0,len(ind_clusters[i]))] for i in range(0,n_medoids) ]
+    dist_clusters = [[dist_matrix[ind_clusters[i]][j][ind_clusters[i]] 
+                      for j in range(0,len(ind_clusters[i]))] for i in range(0,n_medoids)]
     # MDS calculation
     embedding = manifold.MDS(n_components=2, dissimilarity='precomputed')
-    mds_clusters = [embedding.fit_transform(dist_clusters[i]) for i in range(0,n_medoids)] 
-                   # TODO 2: minimize the stress for these mds 
+    mds_clusters = []
+    for i in range(0, n_medoids):
+        stress = 1
+        for j in range(0,100):
+            temp_mds = embedding.fit_transform(dist_clusters[i])
+            temp_s = embedding.stress_
+            if temp_s < stress:
+                stress = temp_s
+                final_mds = temp_mds
+        mds_clusters.append(final_mds)
 
     ## Anchor points
-    n_rand = [10000 for i in range(0,n_medoids)]
+    n_rand = [10000 for i in range(0,n_medoids)] # we could choose a different number of iteration 
+                                                 # depending on the length of the cluster
     # medoids coordinates in the MDS per cluster
     medoids_in_clusters = [mds_clusters[i][np.where(ind_medoids[i] == ind_clusters[i])[0][0]] 
                            for i in range(0,n_medoids)]
@@ -39,23 +48,24 @@ def new_MDS(dist_matrix, n_medoids):
     dist_anchor = np.reshape([np.reshape(dist[ind_anchor_global[i]][:,ind_anchor_global], (4,4*n_medoids,))
                   for i in range(0,n_medoids)], (4*n_medoids,4*n_medoids))    
     # MDS calculation minimizing the stress
-    MDS = []
-    stress = []
+    stress = 1
     for i in range(0,1000):
-        MDS.append(embedding.fit_transform(dist_anchor))
-        stress.append(embedding.stress_)        
-    mds_anchor = MDS[np.argmin(stress)]
+        temp_mds = embedding.fit_transform(dist_anchor)
+        temp_s = embedding.stress_
+        if temp_s < stress:
+            stress = temp_s
+            mds_anchor = temp_mds
     
     ## Transformation (from clusters space to MDS-anchor-points space)
     mds_clusters_transf = []    
     for i in range(0,n_medoids):
-        diff_X = medoids_in_clusters[i][4*i:4*i+3] - medoids_in_clusters[i][4*i+3]
+        diff_X = total_anchor_points[i][0:3] - medoids_in_clusters[i]
         diff_Y = mds_anchor[4*i:4*i+3] - mds_anchor[4*i+3]
         A = np.linalg.lstsq(diff_X, diff_Y, rcond=None)[0]
         # We need to translate each cluster to the origin of its transf. matrix A,
         # which corresponds to its medoid.
         correction_medoid = mds_anchor[4*i+3] - np.dot([0,0], A)
-        mds_clusters_transf.append(np.dot(mds_clusters[i] - medoids_in_clusters[i][4*i+3], A) 
+        mds_clusters_transf.append(np.dot(mds_clusters[i] - medoids_in_clusters[i], A) 
                                    + correction_medoid)
 
     mds_clusters_transf = np.array(mds_clusters_transf) # do we need this?
@@ -93,18 +103,18 @@ def points_in_triang(vertices, other_points):
     s=0
     for point in other_points:
         # Sign point, vertex 1, vertex 2
-        b0 = (point[0]-vertices[1][0])*(vertices[0][1]-vertices[1][1])
+        b0 = (point[0]-vertices[1][0])*(vertices[0][1]-vertices[1][1]) \
             - (vertices[0][0]-vertices[1][0])*(point[1]-vertices[1][1])
         # Sign point, vertex 2, vertex 3
-        b1 = (point[0]-vertices[2][0])*(vertices[1][1]-vertices[2][1])
+        b1 = (point[0]-vertices[2][0])*(vertices[1][1]-vertices[2][1]) \
             - (vertices[1][0]-vertices[2][0])*(point[1]-vertices[2][1]) 
         # Sign point, vertex 3, vertex 1 
-        b2 = (point[0]-vertices[0][0])*(vertices[2][1]-vertices[0][1])
+        b2 = (point[0]-vertices[0][0])*(vertices[2][1]-vertices[0][1]) \
             - (vertices[2][0]-vertices[0][0])*(point[1]-vertices[0][1])
         if (b0*b1 > 0) & (b1*b2 > 0): 
             s += 1
 
-        return s
+    return s
 
 
 ###################### cMDS applied to Atomic Physics #######################
@@ -115,12 +125,12 @@ def kernel_dist(file, cut_off, nmax, lmax, sigma, zeta):
     n_max, l_max, zeta = integers (lmax <= nmax)
     cut_off, sigma = floats
     """
-    # TODO 3: update it for more than one specie
+    # TODO 3: update for more species
     
     aC = quippy.Atoms(file)
     desc = descriptors.Descriptor(" soap cutoff=" + str(cut_off) + " l_max=" 
                                   + str(lmax) +" n_max=" + str(nmax) + 
-                                  "atom_sigma=" + str(sigma) + " n_Z=1 Z={6}")
+                                  " atom_sigma=" + str(sigma) + " n_Z=1 Z={6}")
     aC.set_cutoff(desc.cutoff())
     aC.calc_connect()
     q = desc.calc(aC).descriptor
@@ -132,4 +142,9 @@ def kernel_dist(file, cut_off, nmax, lmax, sigma, zeta):
                         for j in range(0,aC.n)] for i in range(0,aC.n)])
 
     return np.sqrt(1-k_SOAP) # Distance matrix
+
+
+
+
+
 
