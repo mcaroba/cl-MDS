@@ -1,6 +1,6 @@
 import numpy as np
-#import quippy
-#from quippy import Atoms, descriptors
+import quippy
+from quippy import Atoms, descriptors
 from sklearn import manifold
 import kmedoids
 import random
