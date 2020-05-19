@@ -6,7 +6,7 @@ import kmedoids
 import random
 
 
-def new_MDS(dist_matrix, n_medoids, t_max=100, init_medoids="random", n_iso_med="None", 
+def new_MDS(dist_matrix, hierarchy, t_max=100, init_medoids="random", n_iso_med="None", 
             n_init_mds_cluster=10, max_iter_cluster=100, n_jobs_cluster=1, verbose_cluster=0,
             n_anchorpts=3, n_init_mds_anchorpts=500, max_iter_anchorpts=100, 
             n_jobs_anchorpts=1, verbose_anchorpts=0):
@@ -15,15 +15,28 @@ def new_MDS(dist_matrix, n_medoids, t_max=100, init_medoids="random", n_iso_med=
     reduction for a given metric matrix preserving both the local and global
     structure of the dataset. Local estructure is given by a clustering
     process.
+
+    The hierarchy parameter is defined by a list containing levels of
+    clustering, [n_clusters, n_level1, n_level2, ... , 1], where n_clusters
+    refers to the finest clustering (computed in the data n-dimensional space)
+    and 1 refers to the final MDS 2d-space. Depending on the chosen hierarchy,
+    different local information of the dataset can be weighted more during 
+    the computation. The simplest hierarchy system is [n_clusters, 1], where 
+    only that local structure is considered.
+
+    TO DO: Include an option to allow both dist_matrix and .xyz file, changing
+           return accordingly.
     """
-    ## Clusters
+    ### Finest clustering (initial hierarchy level) ###
+    n_clusters = hierarchy[0]
     N = 10**2
     I_rel = 10**4
     for n in range(N):
-        M, C = kmedoids.kMedoids( dist_matrix, n_medoids, init_Ms=init_medoids, n_iso=n_iso_med )
+        M, C = kmedoids.kMedoids( dist_matrix, n_clusters, t_max=t_max,
+                                  init_Ms=init_medoids, n_iso=n_iso_med )
         # Obtain relative intercluster (in)coherence
         temp_I = 0 
-        for i in range(n_medoids):
+        for i in range(n_clusters):
             temp_I += np.sum(dist_matrix[M[i]][C[i]])/len(C[i])
         # Minimize this value
         if temp_I <= I_rel:
@@ -31,61 +44,94 @@ def new_MDS(dist_matrix, n_medoids, t_max=100, init_medoids="random", n_iso_med=
             ind_medoids, ind_clusters = M, C
 
     # Compute the distance matrix per cluster
-    dist_clusters = [[dist_matrix[ind_clusters[i]][j][ind_clusters[i]] 
-                      for j in range(len(ind_clusters[i]))] for i in range(n_medoids)]
+    dist_clusters = [dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])] 
+                     for i in range(n_clusters)]
     # MDS calculation minimizing the stress
     embedding = manifold.MDS( n_components = 2, dissimilarity = "precomputed",
                               n_init = n_init_mds_cluster, max_iter = max_iter_cluster, 
                               n_jobs = n_jobs_cluster, verbose = verbose_cluster )
-    mds_clusters = [embedding.fit_transform(dist_clusters[i]) for i in range(n_medoids)]
+    mds_clusters = np.zeros((len(dist_matrix),2))
+    for i in range(n_clusters):
+        if len(ind_clusters[i]) > 1:
+            mds_clusters[ind_clusters[i]] = embedding.fit_transform(dist_clusters[i])
+        else:             
+            mds_clusters[ind_clusters[i]] = np.zeros((1,2)) # avoid sklearn RuntimeWarning
 
-    ## Anchor points
-    n_rand = [10*len(ind_clusters[i]) if len(ind_clusters[i])-1 > n_anchorpts else 1 
-              for i in range(0,n_medoids)] 
-             # Choose a different number of iterations depending on the length of the cluster
-    medoids_in_clusters = []
-    N_anchor = []
-    total_anchor_points = []
-    ind_anchor_global = []
-    for i,j in zip(range(n_medoids),n_rand):
-        # medoids coordinates in the MDS per cluster
-        ind_medoid_cl = np.where(ind_medoids[i] == ind_clusters[i])[0][0]
-        medoids_in_clusters.append(mds_clusters[i][ind_medoid_cl])
-        # calculate the anchor points for each cluster
-        anchor_cluster = anchor_points(n_anchorpts, np.delete(mds_clusters[i],ind_medoid_cl,axis=0), j)
-        N_anchor.append(len(anchor_cluster))
-        total_anchor_points.append(anchor_cluster)
-        # indexes in both the local- (clusters) and global-space matrices
-        for k in range(N_anchor[i]):
-            ind_anchor_local = np.where(anchor_cluster[k,:] == mds_clusters[i])[0][0]
-            ind_anchor_global.append(ind_clusters[i][ind_anchor_local])
-    ind_anchor_global = np.append(ind_anchor_global, ind_medoids,axis=0) # Add the medoids
-    # metric matrix for the anchor points
-    dist_anchor = dist_matrix[np.ix_(ind_anchor_global,ind_anchor_global)] 
-    # MDS calculation minimizing the stress
-    embedding = manifold.MDS( n_components = 2, dissimilarity = "precomputed", 
-                              n_init = n_init_mds_anchorpts, max_iter = max_iter_anchorpts, 
-                              n_jobs = n_jobs_anchorpts, verbose = verbose_anchorpts )
-    mds_anchor = embedding.fit_transform(dist_anchor)
+  
+    ### Hierarchy levels ###
+    n_levels = len(hierarchy)
+    M_prev = ind_medoids
+    C_prev = ind_clusters
+    embedding_h = manifold.MDS( n_components = 2, dissimilarity = "precomputed", 
+                                n_init = n_init_mds_anchorpts, max_iter = max_iter_anchorpts, 
+                                n_jobs = n_jobs_anchorpts, verbose = verbose_anchorpts )
+    C_int = {} 
+    for level in range(1, n_levels):
+        ## Check the data reorganization needed for this new hierarchy level
+        if hierarchy[level] > 1:
+            # Asign the clusters of previous level to the current ones 
+            m, c = kmedoids.kMedoids(dist_matrix[np.ix_(M_prev, M_prev)], hierarchy[level])
+            # Obtain a dictionary with all the indexes of each new cluster
+            C_new = { newcl: np.concatenate( [C_prev[i] for i in c[newcl]] ) 
+                      for newcl in range(hierarchy[level]) }
+            C_int[level] = C_new
+        elif hierarchy[level] == 1:
+            # No clustering (consider all data points)
+            c = { 0: np.arange(hierarchy[level-1]) }
+            C_new = { 0: np.arange(len(dist_matrix)) }           
+        else:
+            raise Exception("error in the given hierarchy, wrong entries")
+       
+        ## Obtention of anchor points
+        # Consider anchor points AND medoids separately
+        mds_M_prev = mds_clusters[M_prev] 
+        mds_A = []
+        ind_A = []    
+        for i in range(hierarchy[level-1]):
+            # Exclude the medoid as a possible anchor point
+            C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
+            # Choose the number of random iterations needed depending on cluster length
+            n_rand = 10*len(C_prev[i]) if len(C_prev[i])-1 > n_anchorpts else 1
+                     # TO DO: improve the choosing method
 
-    ## Transformation (from clusters space to MDS-anchor-points space)
-    mds_clusters_transf = []
-    mds_anchor_transf = []   
-    m = 0
-    for i in range(n_medoids):
-        diff_X = total_anchor_points[i] - medoids_in_clusters[i]
-        diff_Y = mds_anchor[m:m+N_anchor[i]] - mds_anchor[i-n_medoids]
-        A = np.linalg.lstsq(diff_X, diff_Y, rcond=None)[0]
-        # We need to translate each cluster to the origin of its transf. matrix A,
-        # which corresponds to its medoid.
-        correction_medoid = mds_anchor[i-n_medoids] - np.dot([0,0], A)
-        mds_clusters_transf.append(np.dot(mds_clusters[i] - medoids_in_clusters[i], A) 
-                                   + correction_medoid)
-        mds_anchor_transf.append(np.dot(total_anchor_points[i] - medoids_in_clusters[i], A)
-                                   + correction_medoid)
-        m = int(np.sum(N_anchor[:i+1]))
+            # MDS of anchor points in previous level
+            mds_A.append(anchor_points(n_anchorpts, mds_clusters[C_prev_nomed], n_rand))
+            # indexes of anchor points in previous level
+            ind_A.append( [np.where(mds_clusters == mds_A[i][j])[0][0] 
+                           for j in range(len(mds_A[i]))] )
+
+        ## MDS of anchor points and transformation (from previous level to the new one)
+        A = {}
+        mds_clusters_transf = np.zeros((len(dist_matrix),2))
+        for newcl in range(hierarchy[level]):
+            temp_anchors = np.concatenate( [ind_A[i] for i in c[newcl]] ).astype('int32')
+            A[newcl] = np.concatenate( (temp_anchors, M_prev[c[newcl]]) ) 
+            # metric matrix for the anchor points + medoids
+            dist_anchor = dist_matrix[np.ix_(A[newcl], A[newcl])] 
+            mds_anchor = embedding.fit_transform(dist_anchor)
+
+            # transformation matrix ( X·T = X')
+            real_n_anchor = np.zeros((len(c[newcl])+1,), dtype=int)
+            for n, i in enumerate(c[newcl]):
+                real_n_anchor[n+1] = real_n_anchor[n] + len(ind_A[i])
+                diff_X_prev = mds_A[i] - mds_M_prev[i]
+                diff_X_new = mds_anchor[real_n_anchor[n]:real_n_anchor[n+1]] \
+                             - mds_anchor[n-len(c[newcl])]
+                T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None)[0]
+                # Translate each cluster to the origin of its transf. matrix T (i.e. its medoid)
+                correction_med = mds_anchor[n-len(c[newcl])] - np.dot([0,0], T)
+                # Transform their coordinates
+                mds_clusters_transf[C_prev[i]] = np.dot(mds_clusters[C_prev[i]]
+                                                        - mds_M_prev[i], T) + correction_med
+
+        if hierarchy[level] > 1:
+            # Reasign the label "previous" to the new results
+            M_prev = M_prev[m]
+            C_prev = C_new
+            mds_clusters = mds_clusters_transf
+
             
-    return ind_clusters, ind_medoids, embedding, np.array(mds_clusters_transf), np.array(mds_anchor_transf), mds_anchor[-n_medoids:]
+    return mds_clusters_transf, ind_clusters, C_int, ind_medoids
   
 
 ############################ Suporting functions #############################
