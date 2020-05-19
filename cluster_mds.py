@@ -1,12 +1,12 @@
 import numpy as np
-import quippy
-from quippy import Atoms, descriptors
+#import quippy
+#from quippy import Atoms, descriptors
 from sklearn import manifold
 import kmedoids
 import random
 
 
-def new_MDS(dist_matrix, hierarchy, t_max=100, init_medoids="random", n_iso_med="None", 
+def new_MDS(dist_matrix, hierarchy, iter_med=100, t_max=100, init_medoids="random", n_iso_med="None", 
             n_init_mds_cluster=10, max_iter_cluster=100, n_jobs_cluster=1, verbose_cluster=0,
             n_anchorpts=3, n_init_mds_anchorpts=500, max_iter_anchorpts=100, 
             n_jobs_anchorpts=1, verbose_anchorpts=0):
@@ -29,10 +29,9 @@ def new_MDS(dist_matrix, hierarchy, t_max=100, init_medoids="random", n_iso_med=
     """
     ### Finest clustering (initial hierarchy level) ###
     n_clusters = hierarchy[0]
-    N = 10**2
     I_rel = 10**4
-    for n in range(N):
-        M, C = kmedoids.kMedoids( dist_matrix, n_clusters, t_max=t_max,
+    for t in range(iter_med):
+        M, C = kmedoids.kMedoids( dist_matrix, n_clusters, tmax=t_max,
                                   init_Ms=init_medoids, n_iso=n_iso_med )
         # Obtain relative intercluster (in)coherence
         temp_I = 0 
@@ -97,8 +96,8 @@ def new_MDS(dist_matrix, hierarchy, t_max=100, init_medoids="random", n_iso_med=
             # MDS of anchor points in previous level
             mds_A.append(anchor_points(n_anchorpts, mds_clusters[C_prev_nomed], n_rand))
             # indexes of anchor points in previous level
-            ind_A.append( [np.where(mds_clusters == mds_A[i][j])[0][0] 
-                           for j in range(len(mds_A[i]))] )
+            ind_A.append( [np.where(mds_clusters == mds_A[-1][j])[0][0] 
+                           for j in range(len(mds_A[-1]))] )
 
         ## MDS of anchor points and transformation (from previous level to the new one)
         A = {}
@@ -108,7 +107,7 @@ def new_MDS(dist_matrix, hierarchy, t_max=100, init_medoids="random", n_iso_med=
             A[newcl] = np.concatenate( (temp_anchors, M_prev[c[newcl]]) ) 
             # metric matrix for the anchor points + medoids
             dist_anchor = dist_matrix[np.ix_(A[newcl], A[newcl])] 
-            mds_anchor = embedding.fit_transform(dist_anchor)
+            mds_anchor = embedding_h.fit_transform(dist_anchor)
 
             # transformation matrix ( X·T = X')
             real_n_anchor = np.zeros((len(c[newcl])+1,), dtype=int)
