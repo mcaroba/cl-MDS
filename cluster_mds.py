@@ -1,9 +1,217 @@
+#************************************************************************************************************
+# This is the cluster-based MultiDimensional Scaling code for dimensionality reduction data analysis.       #
+#                                                                                                           #
+#                                                cMDS                                                       #
+#                                                                                                           #
+# This code has been written and is copyright (c) 2018-2020 of the following authors:                       #
+#                                                                                                           #
+# *) Patricia Hernandez-Leon                                                                                #
+# *) Miguel A. Caro                                                                                         #
+#                                                                                                           #
+# Department of Electrical Engineering and Automation, Aalto University, Finland                            #
+#                                                                                                           #
+#                                                                                                           #
+# See the file LICENSE.md for license information and the README.md file for practical installation         #
+# instructions and usage examples. The official code repository is                                          #
+#                                                                                                           #
+#                                   https://github.com/mcaroba/cMDS/                                        #
+#                                                                                                           #
+# Visit the repository for the latest version of this distribution.                                         #
+#                                                                                                           #
+#                                                                                                           #
+# If you use cMDS for the compilation of academic/scientific/technical work, please cite, as appropriate:   #
+#                                                                                                           #
+# P. Hernandez-Leon and M.A. Caro, XXX, YYY (2020)                                                          #
+#                                                                                                           #
+#************************************************************************************************************
+
+
+# Import dependencies
 import numpy as np
 #import quippy
 #from quippy import Atoms, descriptors
 from sklearn import manifold
+# We should include kmedoids in the installation
 import kmedoids
 import random
+import sys
+
+
+#************************************************************************************************************
+class cMDS:
+    """
+    This is the main cMDS class. It can take a distance matrix and/or an ASE compatible
+    (e.g., an xyz file) atomic structure.
+
+    If the user chooses an implemented descriptor, cMDS will make an educated guess and assign some sensible
+    defaults. If the user wants more control over the choice of hyperparameters, they should pass a
+    distance matrix instead.
+    """
+
+#   Initialize the class:
+    def __init__(self, dist_matrix=None, atoms=None, descriptor=None, descriptor_string=None,
+                 sparsify=None, n_sparse=None, verbose=True):
+#       This is the list of implemented atomic descriptors (it typically requires external
+#       programs)
+        implemented_descriptors = ["quippy_soap"]
+        sparse_options = ["random"]
+        self.verbose = verbose
+        self.sparsify = sparsify
+        self.n_sparse = n_sparse
+        if sparsify is not None:
+            if sparsify not in sparse_options:
+                raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
+                                sparse_options)
+            else:
+                if n_sparse is None:
+                    raise Exception("If you chose a sparsification option, you need to pass the n_sparse parameter")
+                else:
+                    self.sparsify = sparsify
+                    self.n_sparse = n_sparse
+#       The descriptor is not attached until build_descriptor() is run
+        self.has_descriptor = False
+
+#       Read in the distance matrix
+        if dist_matrix is not None:
+            self.dist_matrix = dist_matrix
+
+#       Read in the atoms file and create an ASE atoms object
+        if atoms is not None:
+            try:
+                from ase.io import read, write
+                self.atoms = read(atoms, index=":")
+            except:
+                raise Exception("I couldn't find an ASE installation; you need ASE to pass an atoms filename!")
+
+#       Check if the user wants to use a descriptor
+        if descriptor is not None:
+            if descriptor not in implemented_descriptors:
+                raise Exception("The descriptor you chose is not implemented; the options are: ",
+                                implemented_descriptors)
+            if dist_matrix is not None:
+                raise Exception("You can't define a distance matrix and a descriptor; choose one or the other!")
+            if atoms is None:
+                raise Exception("If you define a descriptor, you must also provide an atoms filename")
+            self.descriptor = descriptor
+            self.descriptor_string = descriptor_string
+
+
+#   This method takes care of adding a descriptor to the cMDS class:
+    def build_descriptor(self):
+        descriptor = self.descriptor
+        descriptor_string = self.descriptor_string
+        if descriptor == "quippy_soap":
+            from ase.data import atomic_numbers
+            from quippy.descriptors import Descriptor
+            from quippy.convert import ase_to_quip
+            self.zeta = 4
+            if descriptor_string is None:
+                species_list = []
+                for ats in self.atoms:
+                    for at in ats:
+                        if at.symbol not in species_list:
+                            species_list.append(at.symbol)
+                species_string = ""
+                for species in species_list:
+                    species_string += " " + str(atomic_numbers[species])
+                n_Z = len(species_list)
+                cutoff = 3.0
+                quippy_string = "soap n_max=8 l_max=8 cutoff=" + str(cutoff) + " atom_sigma=0.5 Z={" + \
+                                species_string + "} species_Z={" + species_string + "} n_Z=" + str(n_Z) + \
+                                " n_species=" + str(n_Z)
+            else:
+                quippy_string = self.descriptor_string
+#               Cumbersome code to get the cutoff from a string:
+                a = quippy_string
+                for i in range(0, len(a.split())):
+                    b = a.split()[i]
+                    if b[0:6] != "cutoff":
+                        continue
+                    if len(b) == 6:
+                        c = a.split()[i+1]
+                        if len(c) == 1:
+                            cutoff = float(a.split()[i+2])
+                            break
+                        else:
+                            cutoff = float(c[1:])
+                            break
+                    elif len(b) == 7:
+                        c = a.split()[i+1]
+                        cutoff = float(c)
+                        break
+                    else:
+                        cutoff = float(b[7:])
+                        break
+
+            d = Descriptor(quippy_string)
+            n_env = sum(len(ats) for ats in self.atoms)
+            if self.sparsify is not None:
+                if self.sparsify == "random":
+                    sparse_list = list(range(n_env))
+                    np.random.shuffle(sparse_list)
+                    sparse_list = sparse_list[0:self.n_sparse]
+                    self.sparse_list = sparse_list
+            n = 0
+            descriptor = []
+            if self.verbose:
+                print("")
+            for ats in self.atoms:
+                if self.verbose:
+                    sys.stdout.write('\rComputing descriptors:%6.1f%%' % (float(n)*100./float(n_env)) )
+                    sys.stdout.flush()
+                a = ase_to_quip(ats)
+                a.set_cutoff(cutoff)
+                a.calc_connect()
+                qs = d.calc_descriptor(a)
+                for q in qs:
+                    if self.sparsify is not None:
+                        if n in sparse_list:
+                            descriptor.append(q)
+                    else:
+                        descriptor.append(q)
+                    n += 1
+            if self.verbose:
+                print("")
+
+            self.n_env = len(descriptor)
+            self.descriptor = np.array(descriptor)
+            self.has_descriptor = True
+
+
+#   This method takes care of building a distance matrix:
+    def build_dist_matrix(self):
+        if self.descriptor is not None:
+#           If the descriptors have not been computed, we need to do so
+            if not self.has_descriptor:
+                self.build_descriptor()
+
+            n_env = self.n_env
+            dist_matrix = np.zeros([n_env, n_env])
+            n = 0
+            if self.verbose:
+                print("")
+            for i in range(0, n_env):
+                if self.verbose:
+                    sys.stdout.write('\rComputing dist_matrix:%6.1f%%' % (float(n)*100./float(n_env*(n_env+1)/2)) )
+                    sys.stdout.flush()
+#               Do this to remove numerical round-off problems
+                dist_matrix[i,i] = 0.
+                for j in range(i+1, n_env):
+                    prod = np.dot(self.descriptor[i], self.descriptor[j])**self.zeta
+                    if prod <= 1.:
+                        dist_matrix[i][j] = np.sqrt(1. - prod)
+                        dist_matrix[j][i] = np.sqrt(1. - prod)
+                    else:
+                        dist_matrix[i][j] = 0.
+                        dist_matrix[j][i] = 0.
+                    n += 1
+            if self.verbose:
+                print("")
+            self.dist_matrix = dist_matrix
+        else:
+            raise Exception("No descriptor defined: nothing to do!")
+#************************************************************************************************************
+
 
 
 def new_MDS(dist_matrix, hierarchy, iter_med=100, t_max=100, init_medoids="random", n_iso_med="None", 
@@ -139,11 +347,15 @@ def anchor_points(N, points, n_random):
     """
     Given a dataset, this method chooses the N points ("anchor points")
     corresponding to the N vertices of the polygon containing the highest 
-    number of data points. It uses random-choosen secuencies, being less 
+    number of data points. It uses random-chosen sequences, being less 
     accurate (depending on the number of iterations) but faster in general.
 
     ONLY VALID WITH N=3,4 !!!!!!!!!
     """
+    # Only implemented for N = 3, 4
+    if not (N == 3 or N == 4):
+        raise Exception("Only N=3 and N=4 anchor points implemented!")
+
     # Check if the number of samples given is enough to build at least 2 N-gons
     if len(points) > N:
         s_opt = 0
