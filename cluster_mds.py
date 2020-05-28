@@ -60,7 +60,7 @@ class cMDS:
         self.sparsify = sparsify
         self.n_sparse = n_sparse
         self.is_clustered = False
-        self.has_mds = False
+        self.has_cmds = False
         if sparsify is not None:
             if sparsify not in sparse_options:
                 raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
@@ -261,6 +261,7 @@ class cMDS:
         for t in range(iter_med):
             n += 1
             if self.verbose:
+#               This printing is insufficient, make sure all the other tasks within this funtion get printed out <-- comment here
                 sys.stdout.write('\rClustering data:%6.1f%%' % (float(n)*100./float(iter_med)) )
                 sys.stdout.flush()
             M, C = kmedoids.kMedoids( self.dist_matrix, n_clusters, tmax=t_max,
@@ -352,19 +353,35 @@ class cMDS:
                     diff_X_prev = mds_A[i] - mds_M_prev[i]
                     diff_X_new = mds_anchor[real_n_anchor[n]:real_n_anchor[n+1]] \
                                  - mds_anchor[n-len(c[newcl])]
-                    T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None)[0]
+                    T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=np.max(diff_X_prev.shape) )[0]
 #                   Translate each cluster to the origin of its transf. matrix T (i.e. its medoid)
                     correction_med = mds_anchor[n-len(c[newcl])] - np.dot([0,0], T)
 #                   Transform their coordinates
                     mds_clusters_transf[C_prev[i]] = np.dot(mds_clusters[C_prev[i]]
                                                             - mds_M_prev[i], T) + correction_med
             if hierarchy[level] > 1:
-#               Reasign the label "previous" to the new results
+#               Reassign the label "previous" to the new results
                 M_prev = M_prev[m]
                 C_prev = C_new
                 mds_clusters = mds_clusters_transf
 
-        return mds_clusters_transf, ind_clusters, C_int, ind_medoids
+#       These indices refer to the dist_matrix; we need to make sure that the information required to retrieve  <-- comment here
+#       the atomic structures from the original data base are consistent with the sparsification technique used <-- comment here
+#       We should also give the option to output the mds coordinates to the xyz file and generate carved xyz    <-- comment here
+#       structures around the medoids for plotting                                                              <-- comment here
+        self.has_cmds = True
+#        return mds_clusters_transf, ind_clusters, C_int, ind_medoids
+        self.sparse_coordinates = mds_clusters_transf
+        self.sparse_clusters = ind_clusters
+        self.sparse_medoids = ind_medoids
+
+
+#   This is a user friendly function that returns the clusters and medoids of the sparse set
+    def get_sparse_coordinates(self, hierarchy):
+        if not self.has_cmds:
+            self.cluster_MDS(hierarchy = hierarchy)
+
+        return self.sparse_coordinates
 #************************************************************************************************************
 
 
