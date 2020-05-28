@@ -366,7 +366,7 @@ class cMDS:
                     diff_X_prev = mds_A[i] - mds_M_prev[i]
                     diff_X_new = mds_anchor[real_n_anchor[n]:real_n_anchor[n+1]] \
                                  - mds_anchor[n-len(c[newcl])]
-                    T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=np.max(diff_X_prev.shape) )[0]
+                    T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=-1 )[0]
 #                   Translate each cluster to the origin of its transf. matrix T (i.e. its medoid)
                     correction_med = mds_anchor[n-len(c[newcl])] - np.dot([0,0], T)
 #                   Transform their coordinates
