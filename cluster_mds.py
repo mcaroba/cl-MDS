@@ -185,6 +185,8 @@ class cMDS:
             self.n_env = len(descriptor)
             self.descriptor = np.array(descriptor)
             self.has_descriptor = True
+        else:
+            raise Exception("You must choose among the implemented descriptors: ", implemented_descriptors)
 
 
 #   This method takes care of building a distance matrix:
@@ -244,11 +246,13 @@ class cMDS:
         the computation. The simplest hierarchy system is [n_clusters, 1], where 
         only that local structure is considered.
         """
+        if len(hierarchy) == 1:
+            hierarchy.append([1])
+
         if not self.has_dist_matrix:
             self.build_dist_matrix()
 
 #       Finest clustering (initial hierarchy level)
-#       If the last item in the hierarchy list is always 1, shouldn't we remove it from the user's definition? <-- comment here
         try:
             n_clusters = hierarchy[0]
         except:
@@ -287,11 +291,20 @@ class cMDS:
                                   n_init = n_init_mds_cluster, max_iter = max_iter_cluster,
                                   n_jobs = n_jobs_cluster, verbose = verbose_cluster )
         mds_clusters = np.zeros((len(self.dist_matrix),2))
+        if self.verbose:
+            print("")
         for i in range(n_clusters):
+            if self.verbose:
+                sys.stdout.write('\rEmbedding data:%6.1f%%' % (float(i)*100./float(n_clusters)) )
+                sys.stdout.flush()
             if len(ind_clusters[i]) > 1:
                 mds_clusters[ind_clusters[i]] = embedding.fit_transform(dist_clusters[i])
             else:
                 mds_clusters[ind_clusters[i]] = np.zeros((1,2)) # avoid sklearn RuntimeWarning
+        if self.verbose:
+            sys.stdout.write('\rEmbedding data:%6.1f%%' % 100. )
+            sys.stdout.flush()
+            print("")
 #       Hierarchy levels
         n_levels = len(hierarchy)
         M_prev = ind_medoids
@@ -381,7 +394,17 @@ class cMDS:
         if not self.has_cmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
-        return self.sparse_coordinates
+        ext_coordinates = np.zeros([self.n_env,3])
+        ext_coordinates[0:self.n_env, 0:2] = self.sparse_coordinates
+        for i in range(0, self.n_env):
+             for cluster in range(0, hierarchy[0]):
+                 if i in self.sparse_clusters[cluster]:
+                     ext_coordinates[i][2] = cluster
+                     break
+
+        return ext_coordinates
+
+
 #************************************************************************************************************
 
 
