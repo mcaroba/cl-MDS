@@ -152,6 +152,7 @@ class cMDS:
                         cutoff = float(b[7:])
                         break
 
+            self.cutoff = cutoff
             d = Descriptor(quippy_string)
             n_env = sum(len(ats) for ats in self.atoms)
             if self.sparsify is not None:
@@ -160,6 +161,7 @@ class cMDS:
                     np.random.shuffle(sparse_list)
                     sparse_list = sparse_list[0:self.n_sparse]
                     self.sparse_list = sparse_list
+
             n = 0
             descriptor = []
             if self.verbose:
@@ -445,6 +447,57 @@ class cMDS:
             ats.new_array("cluster_number", cluster)
 
         write(filename, new_atoms)
+
+
+#   This method exports carved medoid environments to xyz files
+    def medoids_to_xyz(self, dir=None):
+        if dir == None:
+            raise Exception("You must define a directory to write medoid's xyz files to")
+
+        if self.atoms == None:
+            raise Exception("You need to provide an input atoms file if you want to write the coordinates \
+                             to an xyz file.")
+
+        if not self.has_cmds:
+            raise Exception("You haven't run a cMDS coordinate calculation yet!")
+
+        cutoff = self.cutoff
+        from ase.io import write
+        from ase import Atoms
+        import os
+
+        if not os.path.exists(dir):
+            os.mkdir(dir)
+
+        n = 0
+        for ats in self.atoms:
+            natoms = len(ats)
+            for j in range(0, natoms):
+                if n in self.sparse_list:
+                    i = self.sparse_list.index(n)
+                    if i in self.sparse_medoids:
+                        pos = ats.get_positions()
+                        cell = ats.get_cell()
+                        new_pos = []
+                        neighbors = []
+                        site = Atoms()
+                        for j2 in range(0, natoms):
+                            d = ats.get_distance(j, j2, mic=True)
+                            if d < cutoff:
+                                neighbors.append(j2)
+                                new_pos.append(pos[j2])
+                                site += ats[j2]
+
+                        site.set_cell(cell)
+                        site.set_positions(new_pos)
+                        site.set_pbc(True)
+                        shift = np.array([cutoff, cutoff, cutoff]) - pos[j]
+                        site.translate(shift); site.wrap()
+                        site.set_cell([2.*cutoff, 2.*cutoff, 2.*cutoff])
+                        site.set_pbc(False)
+                        i2 = np.where(self.sparse_medoids == i)[0][0]
+                        write(dir + "/medoid_%i.xyz" % i2, site)
+                n += 1
 
 #************************************************************************************************************
 
