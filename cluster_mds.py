@@ -89,6 +89,8 @@ class cMDS:
                 self.atoms = read(atoms, index=":")
             except:
                 raise Exception("I couldn't find an ASE installation; you need ASE to pass an atoms filename!")
+        else:
+            self.atoms = None
 
 #       Check if the user wants to use a descriptor
         if descriptor is not None:
@@ -388,22 +390,61 @@ class cMDS:
         self.sparse_clusters = ind_clusters
         self.sparse_medoids = ind_medoids
 
+        sparse_cluster_indices = []
+        for i in range(0, self.n_env):
+             for cluster in range(0, hierarchy[0]):
+                 if i in self.sparse_clusters[cluster]:
+                     sparse_cluster_indices.append(cluster)
+                     break
+
+        self.sparse_cluster_indices = sparse_cluster_indices
+
 
 #   This is a user friendly function that returns the clusters and medoids of the sparse set
     def get_sparse_coordinates(self, hierarchy):
         if not self.has_cmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
-        ext_coordinates = np.zeros([self.n_env,3])
+        ext_coordinates = np.empty([self.n_env,3])
         ext_coordinates[0:self.n_env, 0:2] = self.sparse_coordinates
-        for i in range(0, self.n_env):
-             for cluster in range(0, hierarchy[0]):
-                 if i in self.sparse_clusters[cluster]:
-                     ext_coordinates[i][2] = cluster
-                     break
+        ext_coordinates[0:self.n_env, 2] = self.sparse_cluster_indices
 
         return ext_coordinates
 
+
+#   This method writes an extended xyz file with the cMDS coordinates
+    def write_xyz(self, filename=None):
+        if filename == None:
+            raise Exception("You must define a filename to write to disk")
+
+        if self.atoms == None:
+            raise Exception("You need to provide an input atoms file if you want to write the coordinates \
+                             to an xyz file.")
+
+        if not self.has_cmds:
+            raise Exception("You haven't run a cMDS coordinate calculation yet!")
+
+        from ase.io import write
+
+        new_atoms = self.atoms.copy()
+        n = 0
+        for ats in new_atoms:
+            natoms = len(ats)
+            coords = np.empty([natoms, 2], dtype=float)
+            coords[:,:] = np.NaN
+            cluster = np.empty(natoms, dtype=int)
+            cluster[:] = -1
+            for j in range(0, natoms):
+                if n in self.sparse_list:
+                    i = self.sparse_list.index(n)
+                    coords[j] = self.sparse_coordinates[i]
+                    cluster[j] = self.sparse_cluster_indices[i]
+                n += 1
+
+            ats.new_array("cmds_coords", coords)
+            ats.new_array("cluster_number", cluster)
+
+        write(filename, new_atoms)
 
 #************************************************************************************************************
 
