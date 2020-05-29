@@ -546,7 +546,7 @@ class cMDS:
 
             f.close()
             f = open(dir + "/gnuplot.script", "w+")
-            print("set term pngcairo size 640,480; set output 'cmds_map.png'", file=f)
+            print("set term pngcairo size 640,640; set output 'cmds_map.png'", file=f)
             print("set size ratio -1", file=f)
             print("set xlabel 'MDS coordinate 1'", file=f)
             print("set ylabel 'MDS coordinate 2'", file=f)
