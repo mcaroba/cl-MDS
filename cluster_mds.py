@@ -51,7 +51,7 @@ class cMDS:
 
 #   Initialize the class:
     def __init__(self, dist_matrix=None, atoms=None, descriptor=None, descriptor_string=None,
-                 sparsify=None, n_sparse=None, verbose=True):
+                 sparsify=None, n_sparse=None, cutoff=None, verbose=True):
 #       This is the list of implemented atomic descriptors (it typically requires external
 #       programs)
         implemented_descriptors = ["quippy_soap"]
@@ -61,6 +61,7 @@ class cMDS:
         self.n_sparse = n_sparse
         self.is_clustered = False
         self.has_cmds = False
+        self.cutoff = cutoff
         if sparsify is not None:
             if sparsify not in sparse_options:
                 raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
@@ -114,6 +115,7 @@ class cMDS:
             from quippy.descriptors import Descriptor
             from quippy.convert import ase_to_quip
             self.zeta = 4
+#           This uses some default SOAP parameters
             if descriptor_string is None:
                 species_list = []
                 for ats in self.atoms:
@@ -124,35 +126,42 @@ class cMDS:
                 for species in species_list:
                     species_string += " " + str(atomic_numbers[species])
                 n_Z = len(species_list)
-                cutoff = 3.0
+                if self.cutoff == None:
+                    cutoff = 3.0
+                else:
+                    cutoff = self.cutoff
                 quippy_string = "soap n_max=8 l_max=8 cutoff=" + str(cutoff) + " atom_sigma=0.5 Z={" + \
                                 species_string + "} species_Z={" + species_string + "} n_Z=" + str(n_Z) + \
                                 " n_species=" + str(n_Z)
+#           This uses a user-defined SOAP
             else:
                 quippy_string = self.descriptor_string
+                if self.cutoff is not None:
+                    cutoff = self.cutoff
 #               Cumbersome code to get the cutoff from a string:
-                a = quippy_string
-                for i in range(0, len(a.split())):
-                    b = a.split()[i]
-                    if b[0:6] != "cutoff":
-                        continue
-                    if len(b) == 6:
-                        c = a.split()[i+1]
-                        if len(c) == 1:
-                            cutoff = float(a.split()[i+2])
+                else:
+                    a = quippy_string
+                    for i in range(0, len(a.split())):
+                        b = a.split()[i]
+                        if b[0:6] != "cutoff":
+                            continue
+                        if len(b) == 6:
+                            c = a.split()[i+1]
+                            if len(c) == 1:
+                                cutoff = float(a.split()[i+2])
+                                break
+                            else:
+                                cutoff = float(c[1:])
+                                break
+                        elif len(b) == 7:
+                            c = a.split()[i+1]
+                            cutoff = float(c)
                             break
                         else:
-                            cutoff = float(c[1:])
+                            cutoff = float(b[7:])
                             break
-                    elif len(b) == 7:
-                        c = a.split()[i+1]
-                        cutoff = float(c)
-                        break
-                    else:
-                        cutoff = float(b[7:])
-                        break
+                    self.cutoff = cutoff
 
-            self.cutoff = cutoff
             d = Descriptor(quippy_string)
             n_env = sum(len(ats) for ats in self.atoms)
             if self.sparsify is not None:
@@ -255,6 +264,8 @@ class cMDS:
 
         if not self.has_dist_matrix:
             self.build_dist_matrix()
+
+        self.hierarchy = hierarchy
 
 #       Finest clustering (initial hierarchy level)
         try:
@@ -450,7 +461,7 @@ class cMDS:
 
 
 #   This method exports carved medoid environments to xyz files
-    def medoids_to_xyz(self, dir=None):
+    def medoids_to_xyz(self, dir=None, carve_radius=None, render=False, bond_cutoff=1.9, gnuplot=False):
         if dir == None:
             raise Exception("You must define a directory to write medoid's xyz files to")
 
@@ -461,7 +472,11 @@ class cMDS:
         if not self.has_cmds:
             raise Exception("You haven't run a cMDS coordinate calculation yet!")
 
-        cutoff = self.cutoff
+        if carve_radius == None:
+            cutoff = self.cutoff
+        else:
+            cutoff = carve_radius
+
         from ase.io import write
         from ase import Atoms
         import os
@@ -499,6 +514,57 @@ class cMDS:
                         write(dir + "/medoid_%i.xyz" % i2, site)
                 n += 1
 
+        if render:
+            try:
+                from ovito.io import import_file
+                from ovito.vis import Viewport
+#                from ovito.modifiers import CreateBondsModifier
+            except:
+                raise Exception("You need Ovito (pip3 install ovito) to use the rendering capability")
+
+            for i in range(0, len(self.sparse_medoids)):
+                atoms = import_file(dir + "/medoid_%i.xyz" % i)
+#               I didn't manage to get bonds to render                                                          <-- comment here
+#                modifier = CreateBondsModifier(cutoff = bond_cutoff)
+#                modifier.vis.enabled = True
+#                modifier.vis.width = 0.3
+#                atoms.modifiers.append(modifier)
+#                atoms.compute()
+                atoms.source.data.cell.vis.render_cell = False
+                atoms.add_to_scene()
+                vp = Viewport()
+                vp.type = Viewport.Type.Perspective
+                vp.zoom_all()
+                vp.render_image(filename=dir+"/medoid_%i.png" % i, size=(400,400), alpha=True)
+                atoms.remove_from_scene()
+
+        if gnuplot:
+            ext_coords = self.get_sparse_coordinates(hierarchy=self.hierarchy)
+            f = open(dir + "/xy.dat", "w+")
+            for i in ext_coords:
+                print(i[0], i[1], i[2], file=f)
+
+            f.close()
+            f = open(dir + "/gnuplot.script", "w+")
+            print("set term pngcairo size 640,480; set output 'cmds_map.png'", file=f)
+            print("set size ratio -1", file=f)
+            print("set xlabel 'MDS coordinate 1'", file=f)
+            print("set ylabel 'MDS coordinate 2'", file=f)
+            if render:
+                print("plot 'xy.dat' u 1:2:3 lc var pt 7 not, \\", file=f)
+                for i in range(0, len(self.sparse_medoids)):
+                    x, y = self.sparse_coordinates[self.sparse_medoids[i]]
+                    print("     'medoid_" + str(i) + ".png' binary filetype=png dx=0.0005" + \
+                          "center=(" + str(x) + "," + str(y) + ") w rgbalpha not, \\", file=f)
+            else:
+                print("plot 'xy.dat' u 1:2:3 lc var not", file=f)
+
+            f.close()
+
+            try:
+                os.system("cd " + dir + "; gnuplot gnuplot.script")
+            except:
+                print("I tried running gnuplot but it failed!")
 #************************************************************************************************************
 
 
