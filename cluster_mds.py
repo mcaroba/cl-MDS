@@ -349,8 +349,8 @@ class cMDS:
                                     n_jobs = n_jobs_anchorpts, verbose = verbose_anchorpts )
 
         C_int = {}
-        linear_transf = []
-        correction = []
+        linear_transf = {}
+        correction = {}
         for level in range(1, n_levels):
             if self.verbose:
                 print("")
@@ -413,6 +413,8 @@ class cMDS:
                                
 #           MDS of anchor points and transformation (from previous level to the new one)
             A = {}
+            transf = {}
+            corr_med = {}
             mds_clusters_transf = np.zeros((len(self.dist_matrix),2))
             n = 0
             for newcl in range(0, hierarchy[level]):
@@ -435,13 +437,17 @@ class cMDS:
                     diff_X_new = mds_anchor[real_n_anchor[l]:real_n_anchor[l+1]] \
                                  - mds_anchor[l-len(c[newcl])]
                     T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
-                    linear_transf.append(T)
 #                   Translate each cluster to the origin of its transf. matrix T (i.e. its medoid)
                     correction_med = mds_anchor[l-len(c[newcl])] - np.dot([0,0], T)
-                    correction.append(correction_med)
 #                   Transform their coordinates
                     mds_clusters_transf[C_prev[i]] = np.dot(mds_clusters[C_prev[i]]
                                                             - mds_M_prev[i], T) + correction_med
+
+#                   Save the transformation and its correction for testing and coordinate estimations
+                    transf[i] = T
+                    corr_med[i] = correction_med
+            linear_transf[level-1] = transf
+            correction[level-1] = corr_med  
             if self.verbose:
                 sys.stdout.write('\rHierarchy level %i (transformation):%6.1f%%' % (level, 100.) )
                 sys.stdout.flush()
@@ -536,8 +542,6 @@ class cMDS:
 #       Compute the transformation from kernel space to 2D       
         transf_coordinates = np.zeros((all_env,2))
         transf_coord_local = np.zeros((all_env,2))
-        distance = []
-        transf = []
         for i in range(0, hierarchy[0]):
             if self.verbose:
                 print("")
@@ -564,8 +568,7 @@ class cMDS:
                     if prod < 1.:
                         dist_cluster[j][k] = np.sqrt(1. - prod)
                     else:
-                        dist_cluster[j][k] = 0.
-            distance.append(dist_cluster)            
+                        dist_cluster[j][k] = 0.          
 
             dist_sparse_cluster = self.dist_matrix[np.ix_(C_sparse, C_sparse)]
             dist_medoid = self.dist_matrix[self.sparse_medoids[i], C_sparse]
@@ -575,7 +578,6 @@ class cMDS:
             X_anchor = dist_sparse_cluster
             Y_anchor = local_sparse_mds
             T = np.linalg.lstsq(X_anchor, Y_anchor, rcond=None)[0]
-            transf.append(T)
             correction_med = local_medoid_mds - np.dot(np.zeros(N_sparse), T)
             transf_coord_local[C] = np.dot(dist_cluster - dist_medoid, T)
 #           Obtain the coordinates, considering previous linear transformations
@@ -596,10 +598,8 @@ class cMDS:
         self.sparse_list = sparse_list 
         self.all_cluster_indices = cluster_indices
         self.all_coordinates = transf_coordinates
-
         self.all_local_coordinates = transf_coord_local
-        self.distance = distance
-        self.transformation = transf 
+
 
 
 #   This method writes an extended xyz file with the cMDS coordinates
