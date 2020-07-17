@@ -43,7 +43,6 @@ class cMDS:
     This is the main cMDS class. It can take a distance matrix and/or an ASE compatible
     (e.g., an xyz file) atomic structure. It can also take concatenated xyz files or any trajectory that
     can be imported with ASE.
-
     If the user chooses an implemented descriptor, cMDS will make an educated guess and assign some sensible
     defaults. If the user wants more control over the choice of hyperparameters, they should pass a
     distance matrix instead.
@@ -174,12 +173,19 @@ class cMDS:
 
             n = 0
             descriptor = []
+            species_list = []
+            config_type_list = []
             if self.verbose:
                 print("")
             for ats in self.atoms:
                 if self.verbose:
                     sys.stdout.write('\rComputing descriptors:%6.1f%%' % (float(n)*100./float(n_env)) )
                     sys.stdout.flush()
+                species_list.append(ats.symbols)
+                if "config_type" in ats.info:
+                    config_type_list.append([ats.info["config_type"]]*len(ats))
+                else:
+                    config_type_list.append([None]*len(ats))
                 a = ase_to_quip(ats)
                 a.set_cutoff(cutoff)
                 a.calc_connect()
@@ -197,6 +203,8 @@ class cMDS:
                 print("")
 
             self.n_env = len(descriptor)
+            self.species_list = np.concatenate([z for z in species_list])
+            self.config_type_list = np.concatenate([c for c in config_type_list])
             self.descriptor = np.array(descriptor)
             self.has_descriptor = True
         else:
@@ -251,7 +259,6 @@ class cMDS:
         reduction for a given metric matrix preserving both the local and global
         structure of the dataset. Local estructure is given by a clustering
         process.
-
         The hierarchy parameter is defined by a list containing levels of
         clustering, [n_clusters, n_level1, n_level2, ... , 1], where n_clusters
         refers to the finest clustering (computed in the data n-dimensional space)
@@ -677,7 +684,6 @@ def anchor_points(N, points, n_random):
     corresponding to the N vertices of the polygon containing the highest 
     number of data points. It uses random-chosen sequences, being less 
     accurate (depending on the number of iterations) but faster in general.
-
     ONLY VALID WITH N=3,4 !!!!!!!!!
     """
     # Only implemented for N = 3, 4
@@ -731,7 +737,6 @@ def points_in_quad(vertices, other_points):
     """
     Computation of the number of points from a given set lying within a
     quadrilateral whose vertices are known.
-
     NOTE: Double counting of the points lying over the diagonal
     (we only need an estimation, not the exact count)
     """
