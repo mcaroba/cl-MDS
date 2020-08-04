@@ -1,6 +1,6 @@
 # cMDS license
 
-Copyright (c) 2020 by Patricia hernández-León and Miguel A. Caro.
+Copyright (c) 2020 by Patricia Hernández-León and Miguel A. Caro.
 
 The **cMDS** code is provided to the community, in the hopes that it will be useful but
 with no warranty whatsoever, under the [Creative Commons Attribution-ShareAlike 
