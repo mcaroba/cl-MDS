@@ -499,9 +499,9 @@ class cMDS:
 
 
 #   This method gives a "cheap" estimation of the MDS coordinates of the points not included in the sparse set
-    def get_estim_coordinates(self):
+    def compute_estim_coordinates(self, hierarchy):
         if not self.has_cmds:
-            raise Exception("You haven't run a cMDS coordinate calculation yet!")
+            self.cluster_MDS(hierarchy = hierarchy)
 
         hierarchy = self.hierarchy
         sparse_list = self.sparse_list
@@ -599,6 +599,19 @@ class cMDS:
 
         self.all_cluster_indices = cluster_indices
         self.all_coordinates = transf_coordinates
+
+
+
+#   This is a user friendly function that returns the clusters and medoids of the complete set
+    def get_all_coordinates(self, hierarchy):
+        if not self.compute_non_sparse:
+            self.compute_estim_coordinates(hierarchy = hierarchy)
+
+        ext_coordinates = np.empty([self.all_env,3])
+        ext_coordinates[0:self.all_env, 0:2] = self.all_coordinates
+        ext_coordinates[0:self.all_env, 2] = self.all_cluster_indices
+
+        return ext_coordinates
 
 
 
@@ -720,7 +733,10 @@ class cMDS:
                 atoms.remove_from_scene()
 
         if gnuplot:
-            ext_coords = self.get_sparse_coordinates(hierarchy=self.hierarchy)
+            if not self.compute_non_sparse:
+                ext_coords = self.get_sparse_coordinates(hierarchy=self.hierarchy)
+            else:
+                ext_coords = self.get_all_coordinates(hierarchy=self.hierarchy)
             f = open(dir + "/xy.dat", "w+")
             for i in ext_coords:
                 print(i[0], i[1], i[2], file=f)
