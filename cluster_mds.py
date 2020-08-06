@@ -192,9 +192,9 @@ class cMDS:
                     sys.stdout.flush()
                 species_list.append(ats.symbols)
                 if "config_type" in ats.info:
-                    config_type_list.append([ats.info["config_type"]]*len(ats))
+                    config_type_list.append(ats.info["config_type"])
                 else:
-                    config_type_list.append([None]*len(ats))
+                    config_type_list.append(None)
                 a = ase_to_quip(ats)
                 a.set_cutoff(cutoff)
                 a.calc_connect()
@@ -213,7 +213,7 @@ class cMDS:
 
             self.n_env = len(descriptor)
             self.species_list = np.concatenate([z for z in species_list])
-            self.config_type_list = np.concatenate([c for c in config_type_list])
+            self.config_type_list = config_type_list
             self.descriptor = np.array(descriptor)
             self.has_descriptor = True
         else:
@@ -337,7 +337,7 @@ class cMDS:
             sys.stdout.flush()
             print("")
         
-        self.sparse_mds_clusters = mds_clusters
+        self.mds_sparse_clusters = mds_clusters
 
 #       Hierarchy levels
         n_levels = len(hierarchy)
@@ -349,8 +349,7 @@ class cMDS:
                                     n_jobs = n_jobs_anchorpts, verbose = verbose_anchorpts )
 
         C_int = {}
-        linear_transf = {}
-        correction = {}
+        linear_transformation = {}
         for level in range(1, n_levels):
             if self.verbose:
                 print("")
@@ -359,7 +358,8 @@ class cMDS:
 #               Assign the clusters of previous level to the current ones
                 I_rel = 10**4
                 for t in range(0, 500):
-                    temp_m, temp_c = kmedoids.kMedoids(self.dist_matrix[np.ix_(M_prev, M_prev)], hierarchy[level], init_Ms="isolated", n_iso=hierarchy[level])
+                    temp_m, temp_c = kmedoids.kMedoids(self.dist_matrix[np.ix_(M_prev, M_prev)], hierarchy[level],
+                                                       init_Ms="isolated", n_iso=hierarchy[level])
                     temp_I = 0 
                     for i in range(hierarchy[level]):
                         temp_I += np.sum(self.dist_matrix[temp_m[i]][temp_c[i]])/len(temp_c[i])
@@ -386,7 +386,7 @@ class cMDS:
             for i in range(0, hierarchy[level-1]):
                 if self.verbose:
                     sys.stdout.write( '\rHierarchy level %i (anchor points):%6.1f%%' 
-                                      % (level, float(i)*100./float(hierarchy[level-1])) )
+                                      % (level-1, float(i)*100./float(hierarchy[level-1])) )
                     sys.stdout.flush()
 #               Exclude the medoid as a possible anchor point
                 C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
@@ -398,14 +398,14 @@ class cMDS:
                     bin_coef_denom = np.math.factorial(n_anchorpts)*np.math.factorial(len(C_prev[i])-1-n_anchorpts)
                     n_rand = np.math.factorial(len(C_prev[i])-1)/bin_coef_denom
                 else:
-#                   Optimize the anchor points selection                                                     <-- comment here
+#                   Optimize the anchor points selection                                                           <-- comment here
                     n_rand = 10000
 #               MDS of anchor points in previous level
                 mds_A.append(anchor_points(n_anchorpts, mds_clusters[C_prev_nomed], n_rand))
 #               indexes of anchor points in previous level
                 ind_A.append( [np.where(mds_clusters == mds_A[-1][j])[0][0] for j in range(len(mds_A[-1]))] )
             if self.verbose:
-                sys.stdout.write('\rHierarchy level %i (anchor points):%6.1f%%' % (level, 100.) )
+                sys.stdout.write('\rHierarchy level %i (anchor points):%6.1f%%' % (level-1, 100.) )
                 sys.stdout.flush()
                 print("")
             if level == 1:
@@ -413,43 +413,39 @@ class cMDS:
                                
 #           MDS of anchor points and transformation (from previous level to the new one)
             A = {}
-            transf = {}
-            corr_med = {}
-            mds_clusters_transf = np.zeros((len(self.dist_matrix),2))
+            linear_transf = {}
+            transf_coordinates = np.zeros((len(self.dist_matrix),2))
             n = 0
             for newcl in range(0, hierarchy[level]):
                 if self.verbose:
                     sys.stdout.write( '\rHierarchy level %i (transformation):%6.1f%%' 
-                                      % (level, float(n)*100./float(hierarchy[level-1])) )
+                                      % (level-1, float(n)*100./float(hierarchy[level-1])) )
                     sys.stdout.flush()
-                temp_anchors = np.concatenate( [ind_A[i] for i in c[newcl]] ).astype('int32')
-                A[newcl] = np.concatenate( (temp_anchors, M_prev[c[newcl]]) )
+                temp_A = np.concatenate( [ind_A[i] for i in c[newcl]] ).astype('int32')
+                A[newcl] = np.concatenate( (temp_A, M_prev[c[newcl]]) )
 #               metric matrix for the anchor points + medoids
                 dist_anchor = self.dist_matrix[np.ix_(A[newcl], A[newcl])]
                 mds_anchor = embedding_h.fit_transform(dist_anchor)
 
 #               transformation matrix T ( X·T = X')
-                real_n_anchor = np.zeros((len(c[newcl])+1,), dtype=int)
+                total_n_anchor = np.zeros((len(c[newcl])+1,), dtype=int)
                 for l, i in enumerate(c[newcl]):
                     n += 1
-                    real_n_anchor[l+1] = real_n_anchor[l] + len(ind_A[i])
+                    total_n_anchor[l+1] = total_n_anchor[l] + len(ind_A[i])
                     diff_X_prev = mds_A[i] - mds_M_prev[i]
-                    diff_X_new = mds_anchor[real_n_anchor[l]:real_n_anchor[l+1]] \
+                    diff_X_new = mds_anchor[total_n_anchor[l]:total_n_anchor[l+1]] \
                                  - mds_anchor[l-len(c[newcl])]
                     T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
-#                   Translate each cluster to the origin of its transf. matrix T (i.e. its medoid)
-                    correction_med = mds_anchor[l-len(c[newcl])] - np.dot([0,0], T)
-#                   Transform their coordinates
-                    mds_clusters_transf[C_prev[i]] = np.dot(mds_clusters[C_prev[i]]
-                                                            - mds_M_prev[i], T) + correction_med
+#                   Transform and translate each cluster to the origin of its transf. matrix T (i.e. its medoid)
+                    correction = mds_anchor[l-len(c[newcl])] 
+                    transf_coordinates[C_prev[i]] = np.dot(mds_clusters[C_prev[i]]
+                                                            - mds_M_prev[i], T) + correction
 
 #                   Save the transformation and its correction for testing and coordinate estimations
-                    transf[i] = T
-                    corr_med[i] = correction_med
-            linear_transf[level-1] = transf
-            correction[level-1] = corr_med  
+                    linear_transf[i] = T
+            linear_transformation[level-1] = linear_transf
             if self.verbose:
-                sys.stdout.write('\rHierarchy level %i (transformation):%6.1f%%' % (level, 100.) )
+                sys.stdout.write('\rHierarchy level %i (transformation):%6.1f%%' % (level-1, 100.) )
                 sys.stdout.flush()
                 print("")
 
@@ -457,17 +453,17 @@ class cMDS:
 #               Reassign the label "previous" to the new results
                 M_prev = M_prev[m]
                 C_prev = C_new
-                mds_clusters = mds_clusters_transf
+                mds_clusters = transf_coordinates
 
 #       These indices refer to the dist_matrix; we need to make sure that the information required to retrieve  <-- comment here
 #       the atomic structures from the original data base are consistent with the sparsification technique used <-- comment here
 #       We should also give the option to output the mds coordinates to the xyz file and generate carved xyz    <-- comment here
 #       structures around the medoids for plotting                                                              <-- comment here
         self.has_cmds = True
-        self.sparse_coordinates = mds_clusters_transf
+        self.sparse_coordinates = transf_coordinates
         self.sparse_clusters = ind_clusters
         self.sparse_medoids = ind_medoids
-        self.linear_transformation = linear_transf
+        self.linear_transformation = linear_transformation
         self.correction_medoids = correction
 
         sparse_cluster_indices = np.empty(len(self.dist_matrix), dtype=int)
@@ -503,15 +499,15 @@ class cMDS:
 
 
 #   This method gives a "cheap" estimation of the MDS coordinates of the points not included in the sparse set
-    def get_estim_coordinates(self, hierarchy):
+    def get_estim_coordinates(self):
         if not self.has_cmds:
             raise Exception("You haven't run a cMDS coordinate calculation yet!")
 
         hierarchy = self.hierarchy
         sparse_list = self.sparse_list
-        self.sparse_descriptor = self.descriptor
+        sparse_descriptor = self.descriptor
 
-#       Compute the descriptors of all the atoms
+#       Compute the descriptors of all the atoms left out of the sparse set
         self.compute_non_sparse = True
         self.build_descriptor()
         all_env = self.all_env
@@ -528,7 +524,7 @@ class cMDS:
                 sys.stdout.flush()
             dist_med = np.zeros(hierarchy[0])
             for j, med in enumerate(self.sparse_medoids):
-                prod = np.dot(self.descriptor[i], self.sparse_descriptor[med])**self.zeta 
+                prod = np.dot(self.descriptor[i], sparse_descriptor[med])**self.zeta 
                 if prod < 1.:
                     dist_med[j] =  np.sqrt(1. - prod)
                 else:
@@ -539,9 +535,10 @@ class cMDS:
             sys.stdout.flush()
             print("")
 
-#       Compute the transformation from kernel space to 2D       
+#       Compute the transformation from kernel space to 2D
+        local_coordinates = np.zeros((all_env,2))       
         transf_coordinates = np.zeros((all_env,2))
-        transf_coord_local = np.zeros((all_env,2))
+        dist_transf = {}
         for i in range(0, hierarchy[0]):
             if self.verbose:
                 print("")
@@ -564,7 +561,7 @@ class cMDS:
                 ind = np.where(non_sparse_list == C[j])[0]
                 for k in range(0, N_sparse):
                     ind_sparse = C_sparse[k]
-                    prod = np.dot(self.descriptor[ind], self.sparse_descriptor[ind_sparse])**self.zeta
+                    prod = np.dot(self.descriptor[ind], sparse_descriptor[ind_sparse])**self.zeta
                     if prod < 1.:
                         dist_cluster[j][k] = np.sqrt(1. - prod)
                     else:
@@ -572,33 +569,36 @@ class cMDS:
 
             dist_sparse_cluster = self.dist_matrix[np.ix_(C_sparse, C_sparse)]
             dist_medoid = self.dist_matrix[self.sparse_medoids[i], C_sparse]
-            local_sparse_mds = self.sparse_mds_clusters[C_sparse,:]
-            local_medoid_mds = self.sparse_mds_clusters[self.sparse_medoids[i],:]
+            local_mds_sparse = self.mds_sparse_clusters[C_sparse,:]
+            local_mds_medoid = self.mds_sparse_clusters[self.sparse_medoids[i],:]
+            global_mds_medoid = self.sparse_coordinates[self.sparse_medoids[i], :] 
 #           transformation matrix T from distance space to 2D ( X·T = Y)
             X_anchor = dist_sparse_cluster
-            Y_anchor = local_sparse_mds
+            Y_anchor = local_mds_sparse
             T = np.linalg.lstsq(X_anchor, Y_anchor, rcond=None)[0]
-            correction_med = local_medoid_mds - np.dot(np.zeros(N_sparse), T)
-            transf_coord_local[C] = np.dot(dist_cluster - dist_medoid, T)
+            dist_transf[i] = T
+            local_coordinates[C] = np.dot(dist_cluster - dist_medoid, T)
 #           Obtain the coordinates, considering previous linear transformations
-            T0 = self.linear_transformation[i]
-            correction0 = self.correction_medoids[i]
-            transf_coordinates[C] = np.dot(transf_coord_local[C] - transf_coord_local[M], T0) + correction0
+            T0 = self.linear_transformation[0][i]
+            transf_coordinates[C] = np.dot(local_coordinates[C], T0)
             for level in range(1, len(hierarchy)-1):
                 cluster_ind = self.sparse_int_cluster_indices[level][C_sparse][0]
-                T1 = self.linear_transformation[hierarchy[level-1] + cluster_ind]
-                correction1 = self.correction_medoids[hierarchy[level-1] + cluster_ind]
-                transf_coordinates[C] = np.dot(transf_coordinates[C] - transf_coordinates[M], T1) + correction1
-            transf_coord_local[C] = transf_coord_local[C] + correction_med
+                T1 = self.linear_transformation[level][cluster_ind]
+                transf_coordinates[C] = np.dot(transf_coordinates[C], T1)
+            local_coordinates[C] = local_coordinates[C] + local_mds_medoid
+            transf_coordinates[C] = transf_coordinates[C] + global_mds_medoid
             if self.verbose:
                 sys.stdout.write('\rEmbedding all data (cluster %i):%6.1f%%' % (i, 100.) )
                 sys.stdout.flush()
                 print("")
                                            
-        self.sparse_list = sparse_list 
+        self.sparse_list = list(sparse_list) 
+        self.descriptor = sparse_descriptor
+        self.distance_transformation = dist_transf 
+        self.all_local_coordinates = local_coordinates
+
         self.all_cluster_indices = cluster_indices
         self.all_coordinates = transf_coordinates
-        self.all_local_coordinates = transf_coord_local
 
 
 
@@ -621,14 +621,19 @@ class cMDS:
         for ats in new_atoms:
             natoms = len(ats)
             coords = np.empty([natoms, 2], dtype=float)
-            coords[:,:] = np.NaN
             cluster = np.empty(natoms, dtype=int)
-            cluster[:] = -1
+            if not self.compute_non_sparse:
+                coords[:,:] = np.NaN
+                cluster[:] = -1
             for j in range(0, natoms):
-                if n in self.sparse_list:
-                    i = self.sparse_list.index(n)
-                    coords[j] = self.sparse_coordinates[i]
-                    cluster[j] = self.sparse_cluster_indices[i]
+                if not self.compute_non_sparse:
+                    if n in self.sparse_list:
+                        i = self.sparse_list.index(n)
+                        coords[j] = self.sparse_coordinates[i]
+                        cluster[j] = self.sparse_cluster_indices[i]
+                else:
+                    coords[j] = self.all_coordinates[n]
+                    cluster[j] = self.all_cluster_indices[n]
                 n += 1
 
             ats.new_array("cmds_coords", coords)
