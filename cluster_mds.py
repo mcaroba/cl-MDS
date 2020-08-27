@@ -50,7 +50,7 @@ class cMDS:
 
 #   Initialize the class:
     def __init__(self, dist_matrix=None, atoms=None, descriptor=None, descriptor_string=None,
-                 sparsify=None, n_sparse=None, cutoff=None, verbose=True):
+                 sparsify=None, n_sparse=None, average_kernel=False, cutoff=None, verbose=True):
 #       This is the list of implemented atomic descriptors (it typically requires external
 #       programs)
         implemented_descriptors = ["quippy_soap"]
@@ -61,8 +61,13 @@ class cMDS:
         self.is_clustered = False
         self.has_cmds = False
         self.cutoff = cutoff
+        self.average_kernel = average_kernel
+        self.compute_non_sparse = False
         if sparsify is not None:
-            if sparsify not in sparse_options:
+            if isinstance(sparsify, (list, np.ndarray)):
+                self.n_sparse = len(sparsify)
+                self.sparsify = sparsify
+            elif sparsify not in sparse_options:
                 raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
                                 sparse_options)
             else:
@@ -71,8 +76,7 @@ class cMDS:
                 else:
                     self.sparsify = sparsify
                     self.n_sparse = n_sparse
-                    self.compute_non_sparse = False
-
+                    
 #       The descriptor is not attached until build_descriptor() is run
         self.has_descriptor = False
 
@@ -109,6 +113,9 @@ class cMDS:
 
 #   This method takes care of adding a descriptor to the cMDS class:
     def build_descriptor(self):
+        if not hasattr(self, 'descriptor_type'):
+            raise Exception("You must define a descriptor, check the implemented options")
+
         descriptor = self.descriptor_type
         descriptor_string = self.descriptor_string
         if descriptor == "quippy_soap":
@@ -129,11 +136,14 @@ class cMDS:
                 n_Z = len(species_list)
                 if self.cutoff == None:
                     cutoff = 3.0
+                    self.cutoff = cutoff
                 else:
                     cutoff = self.cutoff
                 quippy_string = "soap n_max=8 l_max=8 cutoff=" + str(cutoff) + " atom_sigma=0.5 Z={" + \
                                 species_string + "} species_Z={" + species_string + "} n_Z=" + str(n_Z) + \
-                                " n_species=" + str(n_Z)
+                                " n_species=" + str(n_Z) 
+                if self.average_kernel:
+                    quippy_string = quippy_string + " average=T" 
 #           This uses a user-defined SOAP
             else:
                 quippy_string = self.descriptor_string
@@ -162,23 +172,34 @@ class cMDS:
                             cutoff = float(b[7:])
                             break
                     self.cutoff = cutoff
+#               Check if both quippy_string and self.average_kernel have equal True/False values            <-- comment
+#               (otherwise there could be undetected errors, the same can happen with the cutoff)
 
             d = Descriptor(quippy_string)
-            n_env = sum(len(ats) for ats in self.atoms)
+            if self.average_kernel:
+                n_env = len(self.atoms)
+            else:
+                n_env = sum(len(ats) for ats in self.atoms)
             if self.sparsify is not None:
                 if not self.compute_non_sparse:
                     if self.sparsify == "random":
                         sparse_list = list(range(n_env))
                         np.random.shuffle(sparse_list)
                         sparse_list = sparse_list[0:self.n_sparse]
-                        self.sparse_list = np.sort(sparse_list)
+                        self.sparse_list = sorted(sparse_list)
                     else:
-                        sparse_list = self.sparsify
-                        self.sparse_list = np.sort(sparse_list)
+                        if len(self.sparsify) > n_env:
+                            raise Exception("The sparse set can't be bigger than the complete dataset")
+                        else: 
+                            sparse_list = self.sparsify
+                            self.sparse_list = np.sort(sparse_list)
                 else:
                     sparse_list = [i for i in range(0, n_env) if i not in self.sparse_list]
                     self.sparse_list = sparse_list
                     self.all_env = n_env
+            else:    
+#               Added to avoid possible crushes in other methods
+                self.sparse_list = list(range(n_env))
 
             n = 0
             descriptor = []
@@ -213,7 +234,7 @@ class cMDS:
 
             self.n_env = len(descriptor)
             self.species_list = np.concatenate([z for z in species_list])
-            self.config_type_list = config_type_list
+            self.config_type_list = np.array(config_type_list)
             self.descriptor = np.array(descriptor)
             self.has_descriptor = True
         else:
@@ -291,7 +312,6 @@ class cMDS:
         except:
             raise Exception("You need to define a hierarchy of cluster levels by providing the \
                             hierarchy parameter, e.g., hierarchy=[8,3,1] or hierarchy=[8,1]")
-        I_tot = 10**4
         if self.verbose:
             print("")
         for t in range(0, iter_med):
@@ -305,6 +325,8 @@ class cMDS:
             temp_I = 0.
             for i in range(0, n_clusters):
                 temp_I += np.sum(self.dist_matrix[M[i]][C[i]])
+            if t == 0:
+                I_tot = temp_I
 #           Minimize this value
             if temp_I <= I_tot:
                 I_tot = temp_I
@@ -356,13 +378,14 @@ class cMDS:
 #           Check the data reorganization needed for this new hierarchy level
             if hierarchy[level] > 1:
 #               Assign the clusters of previous level to the current ones
-                I_rel = 10**4
                 for t in range(0, 500):
                     temp_m, temp_c = kmedoids.kMedoids(self.dist_matrix[np.ix_(M_prev, M_prev)], hierarchy[level],
                                                        init_Ms="isolated", n_iso=hierarchy[level])
                     temp_I = 0 
                     for i in range(hierarchy[level]):
                         temp_I += np.sum(self.dist_matrix[temp_m[i]][temp_c[i]])/len(temp_c[i])
+                    if t == 0:
+                        I_rel = temp_I
                     if temp_I <= I_rel:
                         I_rel = temp_I
                         m = temp_m
@@ -654,7 +677,7 @@ class cMDS:
 
         write(filename, new_atoms)
 
-#   This method exports carved medoid environments to xyz files
+#   This method exports carved medoid environments to xyz files (ONLY for average_kernel=False)
     def medoids_to_xyz(self, dir=None, carve_radius=None, render=False, bond_cutoff=1.9, gnuplot=False):
         if dir == None:
             raise Exception("You must define a directory to write medoid's xyz files to")
