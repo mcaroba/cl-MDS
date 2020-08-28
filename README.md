@@ -61,66 +61,6 @@ Points | Clusters 1  Embedded coord. 1 | Clusters 2  Embedded coord. 2
    H         0       [-0.5044  0.5121]       0       [ 0.6952  0.0211]
 ```
 
-Detailed example:
-```python
-import numpy as np
-import cluster_mds as cmds
-import matplotlib.pyplot as plt
-import time
-
-# More detailed example using an Atoms file
-
-## 1. Complete dataset
-data = cmds.cMDS(atoms="example_structures.xyz", descriptor="quippy_soap", cutoff=3.0,
-                 descriptor_string="soap n_max=8 l_max=8 cutoff=3.0 atom_sigma=0.5 Z={1 6 8} \
-                 species_Z={1 6 8} n_Z=3 n_species=3") 
-
-# Compute the clusters and embedded coordinates
-data.cluster_MDS([7, 1], init_medoids='isolated', n_iso_med=4, n_init_mds_anchorpts=4000)
-coord_complete = data.sparse_coordinates
-C_complete = data.sparse_cluster_indices
-
-
-## 2. Additional features
-
-# 2.1 Taking advantage of sparsification
-data_sparse = cmds.cMDS(atoms="example_structures.xyz", descriptor="quippy_soap", cutoff=3.0,
-                 descriptor_string="soap n_max=8 l_max=8 cutoff=3.0 atom_sigma=0.5 Z={1 6 8} \
-                 species_Z={1 6 8} n_Z=3 n_species=3", sparsify="random", n_sparse=500) 
-
-# Obtain the dimensionality reduction of the sparse set
-data_sparse.cluster_MDS([7, 1], init_medoids='isolated', n_iso_med=4)
-coord_sparse = data_sparse.sparse_coordinates
-
-# Estimate the embedded coordinates of the remaining data
-data_sparse.compute_estim_coordinates([7, 1])
-coord_estim = data_sparse.all_coordinates
-C_estim = data_sparse.all_cluster_indices
-
-# 2.2 Hierarchical embedding
-# Useful when different levels of local features are known
-# In this case, there are two explicit structural levels:
-#   - 7 types of structures  (check data.config_type_list)
-#   - 3 atomic species       (check data.species_list)
-data_sparse.cluster_MDS([7, 3, 1], init_medoids='isolated', n_iso_med=4)
-coord_sparse_h = data_sparse.sparse_coordinates
-
-data_sparse.compute_estim_coordinates([7, 3, 1])
-coord_hierarchy = data_sparse.all_coordinates
-C_hierarchy = data_sparse.all_cluster_indices
-
-
-## 3. Average kernel
-data_struct = cmds.cMDS(atoms="example_structures.xyz", descriptor="quippy_soap", cutoff=3.0,
-                        descriptor_string="soap n_max=8 l_max=8 cutoff=3.0 atom_sigma=0.5 \
-                        Z={1 6 8} species_Z={1 6 8} n_Z=3 n_species=3 average=T",
-                        average_kernel=True)
-
-# Obtain the embedded coordinates and clusters (trivial in this case) 
-data_struct.cluster_MDS([7, 1])
-coord_struct = data_struct.sparse_coordinates
-C_struct = data_struct.sparse_cluster_indices
-```
 
 ### Main parameters
 
