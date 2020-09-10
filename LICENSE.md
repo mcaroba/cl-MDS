@@ -1,5 +1,10 @@
 # cMDS license
 
+***Notice about the CUR code: notice that the CUR code provided under
+the cur/ directory is Copyright of Brian Lester (2018) and it is
+distributed under its own license in accordance with its license terms.
+See cur/LICENSE.md for details.***
+
 Copyright (c) 2020 by Patricia Hernández-León and Miguel A. Caro.
 
 The **cMDS** code is provided to the community, in the hopes that it will be useful but
