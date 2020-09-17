@@ -1,16 +1,16 @@
-# cMDS
+# cl-MDS
 Cluster-based multidimensional scaling embedding tool for data visualization
 
 ### Basic Example  
 ```python
 import numpy as np
-import cluster_mds as cmds
+import cluster_mds as clmds
 
 # Basic examples using default settings
 
 # INPUT 1: Atoms file  
 # Include the computation of descriptors and their dissimilarity matrix
-data_1 = cmds.cMDS(atoms='basic_example.xyz', descriptor="quippy_soap") 
+data_1 = clmds.clMDS(atoms='basic_example.xyz', descriptor="quippy_soap") 
 
 # Clustering and embedding
 data_1.cluster_MDS([3,1], init_medoids='isolated', n_iso_med=3) 
@@ -20,7 +20,7 @@ Z = data_1.species_list[data_1.sparse_list]
 
 # INPUT 2: Dissimilarity matrix
 D = data_1.dist_matrix
-data_2 = cmds.cMDS(dist_matrix=D)
+data_2 = clmds.clMDS(dist_matrix=D)
 
 # Clustering and embedding
 data_2.cluster_MDS([3,1], init_medoids='isolated', n_iso_med=3) 
@@ -35,7 +35,7 @@ for i in range(0, len(D)):
            (Z[i], C_1[i], ' '.join('% .4f' % j for j in XY_1[i,:]), C_2[i], 
            ' '.join('% .4f' % j for j in XY_2[i,:])) )
 
-# Extend the Atoms file with the cMDS coordinates and cluster indices
+# Extend the Atoms file with the cl-MDS coordinates and cluster indices
 data_1.write_xyz(filename='basic_example_ext.xyz')
 
 # Export carved medoid environments and include them in a plot (using gnuplot)

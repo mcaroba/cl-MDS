@@ -1,7 +1,7 @@
 #************************************************************************************************************
 # This is the cluster-based MultiDimensional Scaling code for dimensionality reduction data analysis.       #
 #                                                                                                           #
-#                                                cMDS                                                       #
+#                                                cl-MDS                                                      #
 #                                                                                                           #
 # This code has been written and is copyright (c) 2018-2020 of the following authors:                       #
 #                                                                                                           #
@@ -14,12 +14,12 @@
 # See the file LICENSE.md for license information and the README.md file for practical installation         #
 # instructions and usage examples. The official code repository is                                          #
 #                                                                                                           #
-#                                   https://github.com/mcaroba/cMDS/                                        #
+#                                   https://github.com/mcaroba/cl-MDS/                                       #
 #                                                                                                           #
 # Visit the repository for the latest version of this distribution.                                         #
 #                                                                                                           #
 #                                                                                                           #
-# If you use cMDS for the compilation of academic/scientific/technical work, please cite, as appropriate:   #
+# If you use cl-MDS for the compilation of academic/scientific/technical work, please cite, as appropriate:  #
 #                                                                                                           #
 # P. Hernandez-Leon and M.A. Caro, XXX, YYY (2020)                                                          #
 #                                                                                                           #
@@ -28,22 +28,20 @@
 
 # Import dependencies
 import numpy as np
-#import quippy
-#from quippy import Atoms, descriptors
 from sklearn import manifold
-# We should include kmedoids in the installation
+# We should include kmedoids in the installation                                                              <--- comment
 import kmedoids
 import random
 import sys
 
 
 #************************************************************************************************************
-class cMDS:
+class clMDS:
     """
-    This is the main cMDS class. It can take a distance matrix and/or an ASE compatible
+    This is the main clMDS class. It can take a distance matrix and/or an ASE compatible
     (e.g., an xyz file) atomic structure. It can also take concatenated xyz files or any trajectory that
     can be imported with ASE.
-    If the user chooses an implemented descriptor, cMDS will make an educated guess and assign some sensible
+    If the user chooses an implemented descriptor, clMDS will make an educated guess and assign some sensible
     defaults. If the user wants more control over the choice of hyperparameters, they should pass a
     distance matrix instead.
     """
@@ -59,7 +57,7 @@ class cMDS:
         self.sparsify = sparsify
         self.n_sparse = n_sparse
         self.is_clustered = False
-        self.has_cmds = False
+        self.has_clmds = False
         self.cutoff = cutoff
         self.average_kernel = average_kernel
         self.compute_non_sparse = False
@@ -76,6 +74,8 @@ class cMDS:
                 else:
                     self.sparsify = sparsify
                     self.n_sparse = n_sparse
+#       Implement the CUR decomposition as a sparsify option                                                   <--- comment
+#       BE CAREFUL WITH POSSIBLE REPEATED ENTRIES (should I make the core of the code more robust?)    
                     
 #       The descriptor is not attached until build_descriptor() is run
         self.has_descriptor = False
@@ -111,7 +111,7 @@ class cMDS:
             self.descriptor_string = descriptor_string
 
 
-#   This method takes care of adding a descriptor to the cMDS class:
+#   This method takes care of adding a descriptor to the clMDS class:
     def build_descriptor(self):
         if not hasattr(self, 'descriptor_type'):
             raise Exception("You must define a descriptor, check the implemented options")
@@ -172,7 +172,7 @@ class cMDS:
                             cutoff = float(b[7:])
                             break
                     self.cutoff = cutoff
-#               Check if both quippy_string and self.average_kernel have equal True/False values            <-- comment
+#               Check if both quippy_string and self.average_kernel have equal True/False values              <-- comment
 #               (otherwise there could be undetected errors, the same can happen with the cutoff)
 
             d = Descriptor(quippy_string)
@@ -191,8 +191,8 @@ class cMDS:
                         if len(self.sparsify) > n_env:
                             raise Exception("The sparse set can't be bigger than the complete dataset")
                         else: 
-                            sparse_list = self.sparsify
-                            self.sparse_list = np.sort(sparse_list)
+                            sparse_list = sorted(self.sparsify)
+                            self.sparse_list = sparse_list
                 else:
                     sparse_list = [i for i in range(0, n_env) if i not in self.sparse_list]
                     self.sparse_list = sparse_list
@@ -212,10 +212,16 @@ class cMDS:
                     sys.stdout.write('\rComputing descriptors:%6.1f%%' % (float(n)*100./float(n_env)) )
                     sys.stdout.flush()
                 species_list.append(ats.symbols)
-                if "config_type" in ats.info:
-                    config_type_list.append(ats.info["config_type"])
+                if not self.average_kernel:
+                    if "config_type" in ats.info:
+                        config_type_list.append([ats.info["config_type"]]*len(ats))
+                    else:
+                        config_type_list.append([None]*len(ats))
                 else:
-                    config_type_list.append(None)
+                    if "config_type" in ats.info:
+                        config_type_list.append(ats.info["config_type"])
+                    else:
+                        config_type_list.append(None)
                 a = ase_to_quip(ats)
                 a.set_cutoff(cutoff)
                 a.calc_connect()
@@ -232,9 +238,12 @@ class cMDS:
                 sys.stdout.flush()
                 print("")
 
+            if not self.average_kernel:
+                self.config_type_list = np.concatenate([c for c in config_type_list])
+            else:
+                self.config_type_list = np.array(config_type_list)
             self.n_env = len(descriptor)
             self.species_list = np.concatenate([z for z in species_list])
-            self.config_type_list = np.array(config_type_list)
             self.descriptor = np.array(descriptor)
             self.has_descriptor = True
         else:
@@ -278,24 +287,19 @@ class cMDS:
             raise Exception("No descriptor defined: nothing to do!")
 
 
-#   This method clusters the data and produces the embedded coordinates
-#   Make sure these are sensible defaults!!!!!!                                                             <-- comment here
+#   This method clusters the data and produces the embedded 2-dimensional coordinates
+#   Make sure these are sensible defaults!!!!!!                                                              <-- comment
     def cluster_MDS(self, hierarchy, iter_med=10000, t_max=100, init_medoids="random", n_iso_med=None,
                     n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
-                    n_anchorpts=3, n_init_mds_anchorpts=3500, max_iter_anchorpts=400, n_jobs_anchorpts=1,
+                    n_anchorpts=3, n_init_mds_anchorpts=3500, max_iter_anchorpts=300, n_jobs_anchorpts=1,
                     verbose_anchorpts=0):
         """
-        This method carries out multidimensional scaling (MDS) dimensionality
-        reduction for a given metric matrix preserving both the local and global
-        structure of the dataset. Local estructure is given by a clustering
-        process.
-        The hierarchy parameter is defined by a list containing levels of
-        clustering, [n_clusters, n_level1, n_level2, ... , 1], where n_clusters
-        refers to the finest clustering (computed in the data n-dimensional space)
-        and 1 refers to the final MDS 2d-space. Depending on the chosen hierarchy,
-        different local information of the dataset can be weighted more during
-        the computation. The simplest hierarchy system is [n_clusters, 1], where 
-        only that local structure is considered.
+        NOTE: Use hierarchy = [n_clusters, n_level1, n_level2, ... , 1] to perform hierarchical
+        embedding and clustering. There, n_clusters refers to the finest clustering (computed 
+        in the data n-dimensional space) and 1 refers to the final embedded 2d-space.
+        Depending on the chosen hierarchy, different local structures of the dataset can be 
+        weighted more during the computation. The simplest hierarchy system is [n_clusters, 1], 
+        where only one level of clustering is considered.
         """
         if len(hierarchy) == 1:
             hierarchy.append([1])
@@ -316,11 +320,11 @@ class cMDS:
             print("")
         for t in range(0, iter_med):
             if self.verbose:
-#               This printing is insufficient, make sure all the other tasks within this funtion get printed out <-- comment here
+#               This print is insufficient, make sure all the other tasks within this funtion get printed out   <-- comment
                 sys.stdout.write('\rClustering data:%6.1f%%' % (float(t)*100./float(iter_med)) )
                 sys.stdout.flush()
-            M, C = kmedoids.kMedoids( self.dist_matrix, n_clusters, tmax=t_max,
-                                      init_Ms=init_medoids, n_iso=n_iso_med )
+            M, C = kmedoids.kMedoids( self.dist_matrix, n_clusters, tmax=t_max, init_Ms=init_medoids, 
+                                      n_iso=n_iso_med )
 #           Obtain total intra-cluster incoherence
             temp_I = 0.
             for i in range(0, n_clusters):
@@ -369,7 +373,6 @@ class cMDS:
         embedding_h = manifold.MDS( n_components = 2, dissimilarity = "precomputed",
                                     n_init = n_init_mds_anchorpts, max_iter = max_iter_anchorpts,
                                     n_jobs = n_jobs_anchorpts, verbose = verbose_anchorpts )
-
         C_int = {}
         linear_transformation = {}
         for level in range(1, n_levels):
@@ -421,7 +424,7 @@ class cMDS:
                     bin_coef_denom = np.math.factorial(n_anchorpts)*np.math.factorial(len(C_prev[i])-1-n_anchorpts)
                     n_rand = np.math.factorial(len(C_prev[i])-1)/bin_coef_denom
                 else:
-#                   Optimize the anchor points selection                                                           <-- comment here
+#                   Optimize the anchor points selection                                                        <-- comment
                     n_rand = 10000
 #               MDS of anchor points in previous level
                 mds_A.append(anchor_points(n_anchorpts, mds_clusters[C_prev_nomed], n_rand))
@@ -478,11 +481,11 @@ class cMDS:
                 C_prev = C_new
                 mds_clusters = transf_coordinates
 
-#       These indices refer to the dist_matrix; we need to make sure that the information required to retrieve  <-- comment here
-#       the atomic structures from the original data base are consistent with the sparsification technique used <-- comment here
-#       We should also give the option to output the mds coordinates to the xyz file and generate carved xyz    <-- comment here
-#       structures around the medoids for plotting                                                              <-- comment here
-        self.has_cmds = True
+#       These indices refer to the dist_matrix; we need to make sure that the information required to retrieve  <-- comment
+#       the atomic structures from the original data base are consistent with the sparsification technique used <-- comment
+#       We should also give the option to output the mds coordinates to the xyz file and generate carved xyz    <-- comment
+#       structures around the medoids for plotting                                                              <-- comment
+        self.has_clmds = True
         self.sparse_coordinates = transf_coordinates
         self.sparse_clusters = ind_clusters
         self.sparse_medoids = ind_medoids
@@ -511,7 +514,7 @@ class cMDS:
 
 #   This is a user friendly function that returns the clusters and medoids of the sparse set
     def get_sparse_coordinates(self, hierarchy):
-        if not self.has_cmds:
+        if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
         ext_coordinates = np.empty([self.n_env,3])
@@ -519,11 +522,11 @@ class cMDS:
         ext_coordinates[0:self.n_env, 2] = self.sparse_cluster_indices
 
         return ext_coordinates
-
+              
 
 #   This method gives a "cheap" estimation of the MDS coordinates of the points not included in the sparse set
     def compute_estim_coordinates(self, hierarchy):
-        if not self.has_cmds:
+        if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
         hierarchy = self.hierarchy
@@ -638,7 +641,7 @@ class cMDS:
 
 
 
-#   This method writes an extended xyz file with the cMDS coordinates
+#   This method writes an extended xyz file with the cl-MDS coordinates
     def write_xyz(self, filename=None):
         if filename == None:
             raise Exception("You must define a filename to write to disk")
@@ -647,8 +650,8 @@ class cMDS:
             raise Exception("You need to provide an input atoms file if you want to write the coordinates \
                              to an xyz file.")
 
-        if not self.has_cmds:
-            raise Exception("You haven't run a cMDS coordinate calculation yet!")
+        if not self.has_clmds:
+            raise Exception("You haven't run a cl-MDS coordinate calculation yet!")
 
         from ase.io import write
 
@@ -672,7 +675,7 @@ class cMDS:
                     cluster[j] = self.all_cluster_indices[n]
                 n += 1
 
-            ats.new_array("cmds_coords", coords)
+            ats.new_array("clmds_coords", coords)
             ats.new_array("cluster_number", cluster)
 
         write(filename, new_atoms)
@@ -686,8 +689,8 @@ class cMDS:
             raise Exception("You need to provide an input atoms file if you want to write the coordinates \
                              to an xyz file.")
 
-        if not self.has_cmds:
-            raise Exception("You haven't run a cMDS coordinate calculation yet!")
+        if not self.has_clmds:
+            raise Exception("You haven't run a cl-MDS coordinate calculation yet!")
 
         if carve_radius == None:
             cutoff = self.cutoff
@@ -741,7 +744,7 @@ class cMDS:
 
             for i in range(0, len(self.sparse_medoids)):
                 atoms = import_file(dir + "/medoid_%i.xyz" % i)
-#               I didn't manage to get bonds to render                                                          <-- comment here
+#               I didn't manage to get bonds to render                                                          <-- comment
 #                modifier = CreateBondsModifier(cutoff = bond_cutoff)
 #                modifier.vis.enabled = True
 #                modifier.vis.width = 0.3
@@ -766,7 +769,7 @@ class cMDS:
 
             f.close()
             f = open(dir + "/gnuplot.script", "w+")
-            print("set term pngcairo size 640,640; set output 'cmds_map.png'", file=f)
+            print("set term pngcairo size 640,640; set output 'clmds_map.png'", file=f)
             print("set size ratio -1", file=f)
             print("set xlabel 'MDS coordinate 1'", file=f)
             print("set ylabel 'MDS coordinate 2'", file=f)
@@ -792,14 +795,14 @@ class cMDS:
 
 
 #************************************************************************************************************
-############################ Suporting functions #############################
+# Suporting functions 
+
+#  Given a dataset, this method choose the N points corresponding to the N vertices of the polygon containing
+#  the highest number of data points. 
+#  It uses random-chosen sequences (less accurate but faster in general).
 def anchor_points(N, points, n_random):
     """
-    Given a dataset, this method chooses the N points ("anchor points")
-    corresponding to the N vertices of the polygon containing the highest 
-    number of data points. It uses random-chosen sequences, being less 
-    accurate (depending on the number of iterations) but faster in general.
-    ONLY VALID WITH N=3,4 !!!!!!!!!
+    NOTE: only valid with N=3,4 !!!
     """
     # Only implemented for N = 3, 4
     if not (N == 3 or N == 4):
@@ -826,11 +829,8 @@ def anchor_points(N, points, n_random):
     return np.array(anchor_p)
 
 
+# Computation of the number of points from a given set lying within a triangle whose vertices are known.
 def points_in_triang(vertices, other_points):
-    """
-    Computation of the number of points from a given set lying within a
-    triangle whose vertices are known.
-    """
     s=0
     for point in other_points:
         # Sign point, vertex 1, vertex 2
@@ -848,11 +848,10 @@ def points_in_triang(vertices, other_points):
     return s
 
 
+# Computation of the number of points from a given set lying within a quadrilateral whose vertices are known.
 def points_in_quad(vertices, other_points):
     """
-    Computation of the number of points from a given set lying within a
-    quadrilateral whose vertices are known.
-    NOTE: Double counting of the points lying over the diagonal
+    NOTE: Double counting of the points lying over the diagonal 
     (we only need an estimation, not the exact count)
     """
     # Get one of its diagonal

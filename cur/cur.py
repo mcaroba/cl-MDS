@@ -18,7 +18,7 @@ def cur_decomposition(M: Matrix, r: int) -> Tuple[Matrix, Matrix, Matrix]:
     C, c_idx = select_C(M, r, c_probs)
     R, r_idx = select_R(M, r, r_probs)
     U = make_U(M, c_idx, r_idx)
-    return C, U, R
+    return C, U, R, r_idx
 
 def probabilities(M: Matrix) -> Tuple[Vector, Vector]:
     """Define probabilities to sample rows and columns by,"""
