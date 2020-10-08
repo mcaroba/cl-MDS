@@ -1,14 +1,14 @@
 # cl-MDS license
 
 *See the notice at the end of this file for license information on the CUR and kmedoids
-codes that are shipped with **cl-MDS**.
+codes that are shipped with **cl-MDS**.*
 
 Copyright (c) 2020 by Patricia Hernández-León and Miguel A. Caro.
 
 The **cl-MDS** code is provided to the community, in the hopes that it will be useful but
 with no warranty whatsoever, under the [Creative Commons Attribution-ShareAlike 
 4.0 International Public License](https://creativecommons.org/licenses/by-sa/4.0/legalcode).
-Read the README file for up-to-date information on how to appropriately give attribution to
+Read the README.md file for up-to-date information on how to appropriately give attribution to
 the code author(s).
 
 Below is a summary of rights and obligations implied by this license; see the [full
@@ -46,7 +46,7 @@ limit how you use the material.
 which are not copyright of the **cl-MDS** authors. They are shipped for the user's convenience
 in accordance with their own licenses/terms of usage:
 
-* **CUR** code: notice the **CUR** code provided under the cur/ directory is Copyright of Brian Lester
+* **CUR**: the **CUR** code provided under the cur/ directory is Copyright of Brian Lester
 (2018) and it is distributed under its own license in accordance with its license terms.
 See cur/LICENSE.md for details.
 
