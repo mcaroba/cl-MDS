@@ -1,16 +1,14 @@
 # cl-MDS license
 
-*Notice about the CUR code: notice that the CUR code provided under
-the cur/ directory is Copyright of Brian Lester (2018) and it is
-distributed under its own license in accordance with its license terms.
-See cur/LICENSE.md for details.*
+*See the notice at the end of this file for license information on the CUR and kmedoids
+codes that are shipped with **cl-MDS**.*
 
 Copyright (c) 2020 by Patricia Hernández-León and Miguel A. Caro.
 
 The **cl-MDS** code is provided to the community, in the hopes that it will be useful but
 with no warranty whatsoever, under the [Creative Commons Attribution-ShareAlike 
 4.0 International Public License](https://creativecommons.org/licenses/by-sa/4.0/legalcode).
-Read the README file for up-to-date information on how to appropriately give attribution to
+Read the README.md file for up-to-date information on how to appropriately give attribution to
 the code author(s).
 
 Below is a summary of rights and obligations implied by this license; see the [full
@@ -39,3 +37,25 @@ or where your use is permitted by an applicable exception or limitation.
 * No warranties are given. The license may not give you all of the permissions necessary for
 your intended use. For example, other rights such as publicity, privacy, or moral rights may
 limit how you use the material. 
+
+---
+
+# Notice about other codes
+
+**cl-MDS** is shipped with other codes it relies on for some of its functionalities, but
+which are not copyright of the **cl-MDS** authors. They are shipped for the user's convenience
+in accordance with their own licenses/terms of usage:
+
+* **CUR**: the **CUR** code provided under the cur/ directory is Copyright of Brian Lester
+(2018) and it is distributed under its own license in accordance with its license terms.
+See cur/LICENSE.md for details.
+
+* **kmedoids**: the **kmedoids** code provided under the kmedoids/ directory is Copyright of
+Cristian Bauckhage (2015) and it is distributed under its own license in accordance with its license
+terms and explicit written consent from the author. In particular, a citation must be provided to the
+k-medoids technical note (Bauckhage, 2015); see kmedoids/README.md for details. Note also that the
+copy of **kmedoids** distributed with **cl-MDS** has been modified by the authors of **cl-MDS** to
+add relevant functionality. Since the **kmedoids** license does not specify any explicit restrictions
+on derivative work, the **cl-MDS** authors do not impose any license on their contribution, nor claim
+any rights other than copyright. These modifications are shared with the community in the hopes that
+they will be useful, but with no warranty, explicit or implicit, of any kind.

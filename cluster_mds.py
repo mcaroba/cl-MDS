@@ -29,8 +29,7 @@
 # Import dependencies
 import numpy as np
 from sklearn import manifold
-# We should include kmedoids in the installation                                                              <--- comment
-import kmedoids
+from kmedoids import kmedoids
 import random
 import sys
 import itertools
