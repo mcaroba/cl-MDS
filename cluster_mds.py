@@ -33,6 +33,9 @@ from sklearn import manifold
 import kmedoids
 import random
 import sys
+import itertools
+from scipy.special import comb
+from scipy.spatial import ConvexHull
 
 
 #************************************************************************************************************
@@ -182,17 +185,18 @@ class clMDS:
                 n_env = sum(len(ats) for ats in self.atoms)
             if self.sparsify is not None:
                 if not self.compute_non_sparse:
-                    if self.sparsify == "random":
-                        sparse_list = list(range(n_env))
-                        np.random.shuffle(sparse_list)
-                        sparse_list = sparse_list[0:self.n_sparse]
-                        self.sparse_list = sorted(sparse_list)
-                    else:
+                    if isinstance(self.sparsify, (list, np.ndarray)):
                         if len(self.sparsify) > n_env:
-                            raise Exception("The sparse set can't be bigger than the complete dataset")
+                            raise Exception("The sparse set can't be larger than the complete dataset")
                         else: 
                             sparse_list = sorted(self.sparsify)
                             self.sparse_list = sparse_list
+                    else:
+                        if self.sparsify == "random":
+                            sparse_list = list(range(n_env))
+                            np.random.shuffle(sparse_list)
+                            sparse_list = sparse_list[0:self.n_sparse]
+                            self.sparse_list = sorted(sparse_list)
                 else:
                     sparse_list = [i for i in range(0, n_env) if i not in self.sparse_list]
                     self.sparse_list = sparse_list
@@ -289,10 +293,10 @@ class clMDS:
 
 #   This method clusters the data and produces the embedded 2-dimensional coordinates
 #   Make sure these are sensible defaults!!!!!!                                                              <-- comment
-    def cluster_MDS(self, hierarchy, iter_med=10000, t_max=100, init_medoids="random", n_iso_med=None,
+    def cluster_MDS(self, hierarchy, iter_med=10000, t_max=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
-                    n_anchorpts=3, n_init_mds_anchorpts=3500, max_iter_anchorpts=300, n_jobs_anchorpts=1,
-                    verbose_anchorpts=0):
+                    n_anchor=3, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
+                    n_jobs_anchor=1, verbose_anchor=0):
         """
         NOTE: Use hierarchy = [n_clusters, n_level1, n_level2, ... , 1] to perform hierarchical
         embedding and clustering. There, n_clusters refers to the finest clustering (computed 
@@ -301,21 +305,27 @@ class clMDS:
         weighted more during the computation. The simplest hierarchy system is [n_clusters, 1], 
         where only one level of clustering is considered.
         """
-        if len(hierarchy) == 1:
-            hierarchy.append([1])
+        if isinstance(hierarchy, list):
+            try:
+                n_clusters = hierarchy[0]
+                assert type(n_clusters) == int
+            except:
+                raise Exception("You need to define a hierarchy of cluster levels by providing the \
+                                 hierarchy parameter, e.g., [8,1] or [8,3,1]")
+            if len(hierarchy) == 1:
+                hierarchy.append([1])
+        elif isinstance(hierarchy, int):
+            hierarchy = [hierarchy, 1]
+        else:
+            raise Exception("You need to define a hierarchy of cluster levels by providing the \
+                            hierarchy parameter, e.g., [8,1] or [8,3,1]")
 
         if not self.has_dist_matrix:
             self.build_dist_matrix()
 
         self.hierarchy = hierarchy
 
-#       Finest clustering (initial hierarchy level)
-        try:
-            n_clusters = hierarchy[0]
-            assert type(n_clusters) == int
-        except:
-            raise Exception("You need to define a hierarchy of cluster levels by providing the \
-                            hierarchy parameter, e.g., hierarchy=[8,3,1] or hierarchy=[8,1]")
+#       Finest clustering (initial hierarchy level) 
         if self.verbose:
             print("")
         for t in range(0, iter_med):
@@ -371,8 +381,8 @@ class clMDS:
         C_prev = ind_clusters
 
         embedding_h = manifold.MDS( n_components = 2, dissimilarity = "precomputed",
-                                    n_init = n_init_mds_anchorpts, max_iter = max_iter_anchorpts,
-                                    n_jobs = n_jobs_anchorpts, verbose = verbose_anchorpts )
+                                    n_init = n_init_mds_anchor, max_iter = max_iter_anchor,
+                                    n_jobs = n_jobs_anchor, verbose = verbose_anchor )
         C_int = {}
         linear_transformation = {}
         for level in range(1, n_levels):
@@ -416,20 +426,17 @@ class clMDS:
                     sys.stdout.flush()
 #               Exclude the medoid as a possible anchor point
                 C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
-#               Choose the number of random iterations needed depending on cluster length
-                if len(C_prev[i]) - 1 < 4:
-                    n_rand = 1
-                elif 4 <= len(C_prev[i]) -1 < 40:
-#                   Exact solution: binomial coefficient (len(C_prev[i])-1; n_anchorpts)
-                    bin_coef_denom = np.math.factorial(n_anchorpts)*np.math.factorial(len(C_prev[i])-1-n_anchorpts)
-                    n_rand = np.math.factorial(len(C_prev[i])-1)/bin_coef_denom
-                else:
-#                   Optimize the anchor points selection                                                        <-- comment
-                    n_rand = 10000
-#               MDS of anchor points in previous level
-                mds_A.append(anchor_points(n_anchorpts, mds_clusters[C_prev_nomed], n_rand))
-#               indexes of anchor points in previous level
-                ind_A.append( [np.where(mds_clusters == mds_A[-1][j])[0][0] for j in range(len(mds_A[-1]))] )
+#               Choose the procedure for the anchor points calculations depending on cluster length
+                if len(C_prev[i]) - 1 < 40:
+                    method_anchor = None
+                else:                                                  
+                    method_anchor = "optimized"
+#               MDS and indexes of anchor points in previous level
+                mds = anchor_points(n_anchor, mds_clusters[C_prev_nomed], method=method_anchor, 
+                                    criterion=criterion_anchor)
+                mds_A.append( mds )
+                indexes = [np.where(mds_clusters == mds_A[-1][j])[0][0] for j in range(0, len(mds_A[-1]))]
+                ind_A.append( np.array(indexes) )
             if self.verbose:
                 sys.stdout.write('\rHierarchy level %i (anchor points):%6.1f%%' % (level-1, 100.) )
                 sys.stdout.flush()
@@ -797,78 +804,84 @@ class clMDS:
 #************************************************************************************************************
 # Suporting functions 
 
-#  Given a dataset, this method choose the N points corresponding to the N vertices of the polygon containing
-#  the highest number of data points. 
-#  It uses random-chosen sequences (less accurate but faster in general).
-def anchor_points(N, points, n_random):
+# Given a dataset, this method choose the N points corresponding to the N vertices of the polygon that fulfils  
+# the selected criterion (area, number of points)
+def anchor_points(N, points, method=None, n_random=None, criterion="area"):
     """
-    NOTE: only valid with N=3,4 !!!
-    """
-    # Only implemented for N = 3, 4
-    if not (N == 3 or N == 4):
-        raise Exception("Only N=3 and N=4 anchor points implemented!")
+    3 available methods: 
+        None (default) = use all possible combinations (without repetition) of the points given 
+        "optimized" = consider all the combinations of the 30 furthest points in the dataset (or the 70% for small datasets)
+        "random" = N random-chosen sequences, where n_random=N (less accurate)
 
-    # Check if the number of samples given is enough to build at least 2 N-gons
-    if len(points) > N:
-        s_opt = 0
-        anchor_p = points[:N]
-        for m in np.arange(n_random):
-            shuffle_points = random.sample(list(points), len(points))
-            temp_vertices = shuffle_points[:N]
-            if N == 3:
-                s = points_in_triang(temp_vertices, shuffle_points[3:])
-            else:
-               # ONLY VALID FOR N=4
-               s = points_in_quad(temp_vertices,shuffle_points[N:])
-            if s > s_opt:
-                s_opt = s
-                anchor_p = temp_vertices
+    2 possible criteria:
+        "area" (default) = choose the polygon with the largest area 
+        "points" = choose the polygon including more data points
+    """
+#   Check if the number of samples given is enough to build at least 2 N-gons
+    if len(points) <= N:
+        return points
+    s_opt = 0
+    anchor_p = points[:N]
+    n_comb = comb(len(points), N, exact=True)
+    indexes = np.arange(0, len(points),1)
+#   Generate vertices and their possible combinations
+    h = ConvexHull(points)
+    external_ind = h.vertices
+    if len(external_ind) <= N:
+        return points[external_ind]
+    if method == "optimized":
+        h = ConvexHull(points)
+        external_ind = h.vertices
+        while len(external_ind) < 0.7*len(points) and len(external_ind) < 30:
+            temp = points[ ~np.isin(indexes, external_ind), :]
+            h = ConvexHull(temp)
+            temp_vert = [np.where(pt == points)[0][0] for pt in temp[h.vertices,:]]
+            external_ind = np.concatenate((external_ind, temp_vert))
+        vertices = itertools.combinations(np.sort(external_ind), N)
+    elif method == "random":
+        n_random = int(n_random)
+        vertices = itertools.combinations(indexes, N)
+        if n_random < n_comb:
+            rand_mask = np.zeros(n_comb, dtype=int)
+            rand_vertices = random.sample(range(0, n_comb), n_random)
+            rand_mask[rand_vertices] = 1
+            vertices = list(itertools.compress(vertices, rand_mask))
+        elif not n_random:
+            raise Exception("You need to provide a number of random combinations of vertices (n_random)")
     else:
-        anchor_p = points
+        vertices = itertools.combinations(indexes, N)
+#   Obtain the best polygon considering the chosen criterion
+    for vert in vertices:
+        temp_anchor = points[vert,:]
+        if criterion == "area":
+            h = ConvexHull(temp_anchor)
+            s = h.volume
+            temp_anchor = temp_anchor[h.vertices] 
+        elif criterion == "points":
+            temp_ind = indexes[ ~np.isin(indexes, vert) ]
+            other_points = points[temp_ind,:]
+            s = points_in_polygon(N, temp_anchor, other_points)
+        else:
+            raise Exception("Choose a criterion included in the options: area, points")
+        if s > s_opt:
+            s_opt = s
+            anchor_p = temp_anchor
 
-    return np.array(anchor_p)
+    return anchor_p
 
 
-# Computation of the number of points from a given set lying within a triangle whose vertices are known.
-def points_in_triang(vertices, other_points):
+
+# Computation of the number of points of a given set lying within a polygon with N vertices
+def points_in_polygon(N, vertices, other_points):
     s=0
+    if N != len(vertices):
+        print("You need to provide %i vertices exactly" % N)
     for point in other_points:
-        # Sign point, vertex 1, vertex 2
-        b0 = (point[0]-vertices[1][0])*(vertices[0][1]-vertices[1][1]) \
-            - (vertices[0][0]-vertices[1][0])*(point[1]-vertices[1][1])
-        # Sign point, vertex 2, vertex 3
-        b1 = (point[0]-vertices[2][0])*(vertices[1][1]-vertices[2][1]) \
-            - (vertices[1][0]-vertices[2][0])*(point[1]-vertices[2][1])
-        # Sign point, vertex 3, vertex 1
-        b2 = (point[0]-vertices[0][0])*(vertices[2][1]-vertices[0][1]) \
-            - (vertices[2][0]-vertices[0][0])*(point[1]-vertices[0][1])
-        if (b0*b1 > 0) & (b1*b2 > 0):
-            s += 1
-
+        temp = np.concatenate((vertices, point[None,:]), axis=0)
+        h = ConvexHull(temp)
+        if len(h.vertices) == N:
+            if set(range(0,N)) <= set(h.vertices):  
+                s += 1
     return s
 
-
-# Computation of the number of points from a given set lying within a quadrilateral whose vertices are known.
-def points_in_quad(vertices, other_points):
-    """
-    NOTE: Double counting of the points lying over the diagonal 
-    (we only need an estimation, not the exact count)
-    """
-    # Get one of its diagonal
-    # Option 1: (vertex 1, vertex 2) , (vertex 3, vertex 4)
-    sum1 = np.linalg.norm(vertices[1]-vertices[0]) + np.linalg.norm(vertices[3]-vertices[2])
-    # Option 2: (vertex 1, vertex 3) , (vertex 2, vertex 4)
-    sum2 = np.linalg.norm(vertices[2]-vertices[0]) + np.linalg.norm(vertices[3]-vertices[1])
-    # Option 3: (vertex 1, vertex 4) , (vertex 2, vertex 3)
-    sum3 = np.linalg.norm(vertices[3]-vertices[0]) + np.linalg.norm(vertices[2]-vertices[1])
-    diag_opt = np.argmax([sum1,sum2,sum3])
-    diag_1 = [vertices[0],vertices[diag_opt+1]]
-    diag_2 = np.delete(vertices,[0,diag_opt+1],0)
-    # Divide the quadrilateral in two triangles
-    triangle_1 = np.concatenate((diag_1, [diag_2[0]]),axis=0)
-    triangle_2 = np.concatenate((diag_1, [diag_2[1]]),axis=0)
-    s1 = points_in_triang(triangle_1, other_points)
-    s2 = points_in_triang(triangle_2, other_points)
-
-    return s1 + s2
 #************************************************************************************************************
