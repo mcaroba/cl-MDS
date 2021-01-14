@@ -30,6 +30,7 @@
 import numpy as np
 from sklearn import manifold
 from kmedoids import kmedoids
+from cur import cur
 import random
 import sys
 import itertools
@@ -54,7 +55,7 @@ class clMDS:
 #       This is the list of implemented atomic descriptors (it typically requires external
 #       programs)
         implemented_descriptors = ["quippy_soap"]
-        sparse_options = ["random"]
+        sparse_options = ["random", "cur"]
         self.verbose = verbose
         self.sparsify = sparsify
         self.n_sparse = n_sparse
@@ -63,22 +64,6 @@ class clMDS:
         self.cutoff = cutoff
         self.average_kernel = average_kernel
         self.compute_non_sparse = False
-        if sparsify is not None:
-            if isinstance(sparsify, (list, np.ndarray)):
-                self.n_sparse = len(sparsify)
-                self.sparsify = sparsify
-            elif sparsify not in sparse_options:
-                raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
-                                sparse_options)
-            else:
-                if n_sparse is None:
-                    raise Exception("If you chose a sparsification option, you need to pass the n_sparse parameter")
-                else:
-                    self.sparsify = sparsify
-                    self.n_sparse = n_sparse
-#       Implement the CUR decomposition as a sparsify option                                                   <--- comment
-#       BE CAREFUL WITH POSSIBLE REPEATED ENTRIES (should I make the core of the code more robust?)    
-                    
 #       The descriptor is not attached until build_descriptor() is run
         self.has_descriptor = False
 
@@ -111,6 +96,26 @@ class clMDS:
                 raise Exception("If you define a descriptor, you must also provide an atoms filename")
             self.descriptor_type = descriptor
             self.descriptor_string = descriptor_string
+
+#       Check if the user wants to use sparsification       
+        if sparsify is not None:
+            if isinstance(sparsify, (list, np.ndarray)):
+                sparsify = list(set(sparsify)) # Avoid repeated entries
+                self.n_sparse = len(sparsify)
+                self.sparsify = sparsify
+            elif sparsify not in sparse_options:
+                raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
+                                sparse_options, " or provide a list of indexes")
+            else:
+                if n_sparse is None:
+                    raise Exception("If you choose a sparsify option, you need to pass the n_sparse parameter")
+                else:
+                    self.sparsify = sparsify
+                    self.n_sparse = n_sparse
+                if sparsify == "cur" and self.has_dist_matrix:
+                    self.sparse_list = cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]
+                    self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
+#               Implement the "optimized sparse set" as a sparsify option                                           <--- comment  
 
 
 #   This method takes care of adding a descriptor to the clMDS class:
@@ -190,17 +195,18 @@ class clMDS:
                         else: 
                             sparse_list = sorted(self.sparsify)
                             self.sparse_list = sparse_list
-                    else:
-                        if self.sparsify == "random":
-                            sparse_list = list(range(n_env))
-                            np.random.shuffle(sparse_list)
-                            sparse_list = sparse_list[0:self.n_sparse]
-                            self.sparse_list = sorted(sparse_list)
+                    elif self.sparsify == "random":
+                        sparse_list = list(range(n_env))
+                        np.random.shuffle(sparse_list)
+                        sparse_list = sparse_list[0:self.n_sparse]
+                        self.sparse_list = sorted(sparse_list)
+                    elif self.sparsify == "cur":
+                        sparse_list = list(range(n_env))
                 else:
                     sparse_list = [i for i in range(0, n_env) if i not in self.sparse_list]
                     self.sparse_list = sparse_list
                     self.all_env = n_env
-            else:    
+            else:
 #               Added to avoid possible crushes in other methods
                 self.sparse_list = list(range(n_env))
 
@@ -230,12 +236,16 @@ class clMDS:
                 a.calc_connect()
                 qs = d.calc_descriptor(a)
                 for q in qs:
-                    if self.sparsify is not None:
+                    if self.sparsify is None:
+                        descriptor.append(q)
+                    else:
                         if n in sparse_list:
                             descriptor.append(q)                       
-                    else:
-                        descriptor.append(q)
                     n += 1
+            descriptor = np.array(descriptor)
+            if self.sparsify == "cur":
+                self.sparse_list = cur.cur_decomposition(descriptor, self.n_sparse)[-1]
+                descriptor = descriptor[self.sparse_list,:]
             if self.verbose:
                 sys.stdout.write('\rComputing descriptors:%6.1f%%' % 100. )
                 sys.stdout.flush()
@@ -247,7 +257,7 @@ class clMDS:
                 self.config_type_list = np.array(config_type_list)
             self.n_env = len(descriptor)
             self.species_list = np.concatenate([z for z in species_list])
-            self.descriptor = np.array(descriptor)
+            self.descriptor = descriptor
             self.has_descriptor = True
         else:
             raise Exception("You must choose among the implemented descriptors: ", implemented_descriptors)
@@ -284,6 +294,7 @@ class clMDS:
                 sys.stdout.write('\rComputing dist_matrix:%6.1f%%' % 100. )
                 sys.stdout.flush()
                 print("")
+
             self.dist_matrix = dist_matrix
             self.has_dist_matrix = True
         else:
