@@ -264,7 +264,7 @@ class clMDS:
 
 
 #   This method takes care of building a distance matrix:
-    def build_dist_matrix(self):
+    def build_dist_matrix(self, precision=1.e-8):
         if self.descriptor_type is not None:
 #           If the descriptors have not been computed, we need to do so
             if not self.has_descriptor:
@@ -283,7 +283,7 @@ class clMDS:
                 dist_matrix[i,i] = 0.
                 for j in range(i+1, n_env):
                     prod = np.dot(self.descriptor[i], self.descriptor[j])**self.zeta
-                    if prod <= 1.:
+                    if prod <= 1. - precision:
                         dist_matrix[i][j] = np.sqrt(1. - prod)
                         dist_matrix[j][i] = np.sqrt(1. - prod)
                     else:
@@ -301,12 +301,13 @@ class clMDS:
             raise Exception("No descriptor defined: nothing to do!")
 
 
+
 #   This method clusters the data and produces the embedded 2-dimensional coordinates
 #   Make sure these are sensible defaults!!!!!!                                                              <-- comment
-    def cluster_MDS(self, hierarchy, iter_med=10000, t_max=100, init_medoids="isolated", n_iso_med=1,
+    def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
-                    n_anchor=3, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
-                    n_jobs_anchor=1, verbose_anchor=0):
+                    n_anchor=4, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
+                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1.e-7):
         """
         NOTE: Use hierarchy = [n_clusters, n_level1, n_level2, ... , 1] to perform hierarchical
         embedding and clustering. There, n_clusters refers to the finest clustering (computed 
@@ -336,37 +337,15 @@ class clMDS:
         self.hierarchy = hierarchy
 
 #       Finest clustering (initial hierarchy level) 
-        if self.verbose:
-            print("")
-        for t in range(0, iter_med):
-            if self.verbose:
-#               This print is insufficient, make sure all the other tasks within this funtion get printed out   <-- comment
-                sys.stdout.write('\rClustering data:%6.1f%%' % (float(t)*100./float(iter_med)) )
-                sys.stdout.flush()
-            M, C = kmedoids.kMedoids( self.dist_matrix, n_clusters, tmax=t_max, init_Ms=init_medoids, 
-                                      n_iso=n_iso_med )
-#           Obtain total intra-cluster incoherence
-            temp_I = 0.
-            for i in range(0, n_clusters):
-                temp_I += np.sum(self.dist_matrix[M[i]][C[i]])
-            if t == 0:
-                I_tot = temp_I
-#           Minimize this value
-            if temp_I <= I_tot:
-                I_tot = temp_I
-                ind_medoids, ind_clusters = M, C
-        if self.verbose:
-            sys.stdout.write('\rClustering data:%6.1f%%' % 100. )
-            sys.stdout.flush()
-            print("")
-
-#       Compute the distance matrix per cluster
+        ind_medoids, ind_clusters = optim_kmedoids( self.dist_matrix, n_clusters, n_iter=iter_med, 
+                                                    tmax=tmax, init_Ms=init_medoids, n_iso=n_iso_med,
+                                                    verbose=self.verbose )
         dist_clusters = [self.dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
                          for i in range(0, n_clusters)]
 #       MDS calculation minimizing the stress
-        embedding = manifold.MDS( n_components = 2, dissimilarity = "precomputed",
-                                  n_init = n_init_mds_cluster, max_iter = max_iter_cluster,
-                                  n_jobs = n_jobs_cluster, verbose = verbose_cluster )
+        embedding = manifold.MDS( n_components=2, dissimilarity="precomputed",
+                                  n_init=n_init_mds_cluster, max_iter=max_iter_cluster,
+                                  n_jobs=n_jobs_cluster, verbose=verbose_cluster )
         mds_clusters = np.zeros((len(self.dist_matrix),2))
         if self.verbose:
             print("")
@@ -390,124 +369,101 @@ class clMDS:
         M_prev = ind_medoids
         C_prev = ind_clusters
 
-        embedding_h = manifold.MDS( n_components = 2, dissimilarity = "precomputed",
-                                    n_init = n_init_mds_anchor, max_iter = max_iter_anchor,
-                                    n_jobs = n_jobs_anchor, verbose = verbose_anchor )
-        C_int = {}
-        linear_transformation = {}
+        embedding_h = manifold.MDS( n_components=2, dissimilarity="precomputed", n_init=n_init_mds_anchor,
+                                    max_iter=max_iter_anchor, n_jobs=n_jobs_anchor, verbose=verbose_anchor )
+                                    
+        C_hierarchy = {}
+        self.transformations = {}
         for level in range(1, n_levels):
             if self.verbose:
                 print("")
+                print('\rHierarchy level %i (%i ---> %i clusters)' % (level-1, hierarchy[level-1], hierarchy[level]))
 #           Check the data reorganization needed for this new hierarchy level
             if hierarchy[level] > 1:
 #               Assign the clusters of previous level to the current ones
-                for t in range(0, 500):
-                    temp_m, temp_c = kmedoids.kMedoids(self.dist_matrix[np.ix_(M_prev, M_prev)], hierarchy[level],
-                                                       init_Ms="isolated", n_iso=hierarchy[level])
-                    temp_I = 0 
-                    for i in range(hierarchy[level]):
-                        temp_I += np.sum(self.dist_matrix[temp_m[i]][temp_c[i]])/len(temp_c[i])
-                    if t == 0:
-                        I_rel = temp_I
-                    if temp_I <= I_rel:
-                        I_rel = temp_I
-                        m = temp_m
-                        c = temp_c
+                D = self.dist_matrix[np.ix_(M_prev, M_prev)]
+                M, C = optim_kmedoids( D, hierarchy[level], n_iter=500, init_Ms="isolated",
+                                       n_iso=hierarchy[level], verbose=self.verbose )
 #               Obtain a dictionary with all the indexes of each new cluster
-                C_new = {newcl: np.concatenate( [C_prev[i] for i in c[newcl]] ) for newcl in range(0, hierarchy[level])}
-                C_int[level] = C_new
+                C_new = { newcl: np.concatenate( [C_prev[i] for i in C[newcl]] ) 
+                                                            for newcl in range(0, hierarchy[level]) }
+                C_hierarchy[level] = C_new
             elif hierarchy[level] == 1:
 #               No clustering (consider all data points)
-                c = { 0: np.arange(hierarchy[level-1]) }
+                C = { 0: np.arange(hierarchy[level-1]) }
                 C_new = { 0: np.arange(len(self.dist_matrix)) }
             else:
                 raise Exception("There is a wrong entry in the hierarchy parameter, it must have \
                                  non-zero integers only (e.g. hierarchy=[8,1])")
 
-#           Obtention of anchor points
-#           Consider anchor points AND medoids separately
+#           Obtention of anchor points (consider anchor points AND medoids separately)
             mds_M_prev = mds_clusters[M_prev]
             mds_A = []
             ind_A = []
+            A_order = []
             for i in range(0, hierarchy[level-1]):
                 if self.verbose:
-                    sys.stdout.write( '\rHierarchy level %i (anchor points):%6.1f%%' 
-                                      % (level-1, float(i)*100./float(hierarchy[level-1])) )
+                    sys.stdout.write( '\rObtaining anchor points:%6.1f%%' 
+                                      % (float(i)*100./float(hierarchy[level-1])) )
                     sys.stdout.flush()
 #               Exclude the medoid as a possible anchor point
                 C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
 #               Choose the procedure for the anchor points calculations depending on cluster length
-                if len(C_prev[i]) - 1 < 40:
+                if len(C_prev[i]) - 1 < 20:
                     method_anchor = None
-                else:                                                  
+                else:                                                       
                     method_anchor = "optimized"
 #               MDS and indexes of anchor points in previous level
-                mds = anchor_points(n_anchor, mds_clusters[C_prev_nomed], method=method_anchor, 
-                                    criterion=criterion_anchor)
+                mds = anchor_points( n_anchor, mds_clusters[C_prev_nomed,:], method=method_anchor, 
+                                     criterion=criterion_anchor )
                 mds_A.append( mds )
-                indexes = [np.where(mds_clusters == mds_A[-1][j])[0][0] for j in range(0, len(mds_A[-1]))]
+                indexes = [np.where(mds_clusters == mds[j])[0][0] for j in range(0, len(mds))]
                 ind_A.append( np.array(indexes) )
+                if len(C_prev[i]) >= n_anchor:
+#                   Order of the anchor points on the previous level
+                    h = ConvexHull(mds_clusters[indexes])
+                    mds_A[-1] = mds_A[-1][h.vertices]
+                    ind_A[-1] = ind_A[-1][h.vertices]
+                else:
+                    mds_A[-1] = np.concatenate((mds_A[-1], mds_M_prev[i,:][None,:]), axis=0)    
+                    ind_A[-1] = np.concatenate((ind_A[-1], [M_prev[i]])).astype('int32')
             if self.verbose:
-                sys.stdout.write('\rHierarchy level %i (anchor points):%6.1f%%' % (level-1, 100.) )
+                sys.stdout.write('\rObtaining anchor points:%6.1f%%' % 100. )
                 sys.stdout.flush()
                 print("")
-            if level == 1:
-                self.anchor_indices = ind_A
                                
-#           MDS of anchor points and transformation (from previous level to the new one)
-            A = {}
-            linear_transf = {}
-            transf_coordinates = np.zeros((len(self.dist_matrix),2))
-            n = 0
+#           MDS of anchor points on the new level and their transformations
+            self.sparse_coordinates = np.zeros((len(self.dist_matrix), 2))
             for newcl in range(0, hierarchy[level]):
                 if self.verbose:
-                    sys.stdout.write( '\rHierarchy level %i (transformation):%6.1f%%' 
-                                      % (level-1, float(n)*100./float(hierarchy[level-1])) )
-                    sys.stdout.flush()
-                temp_A = np.concatenate( [ind_A[i] for i in c[newcl]] ).astype('int32')
-                A[newcl] = np.concatenate( (temp_A, M_prev[c[newcl]]) )
-#               metric matrix for the anchor points + medoids
-                dist_anchor = self.dist_matrix[np.ix_(A[newcl], A[newcl])]
+                    print( '\rResult for new cluster %i' % newcl  )
+                A = np.concatenate( [ind_A[i] for i in C[newcl]] ).astype('int32')
+                dist_anchor = self.dist_matrix[np.ix_(A, A)]
                 mds_anchor = embedding_h.fit_transform(dist_anchor)
 
-#               transformation matrix T ( X·T = X')
-                total_n_anchor = np.zeros((len(c[newcl])+1,), dtype=int)
-                for l, i in enumerate(c[newcl]):
-                    n += 1
-                    total_n_anchor[l+1] = total_n_anchor[l] + len(ind_A[i])
-                    diff_X_prev = mds_A[i] - mds_M_prev[i]
-                    diff_X_new = mds_anchor[total_n_anchor[l]:total_n_anchor[l+1]] \
-                                 - mds_anchor[l-len(c[newcl])]
-                    T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
-#                   Transform and translate each cluster to the origin of its transf. matrix T (i.e. its medoid)
-                    correction = mds_anchor[l-len(c[newcl])] 
-                    transf_coordinates[C_prev[i]] = np.dot(mds_clusters[C_prev[i]]
-                                                            - mds_M_prev[i], T) + correction
-
-#                   Save the transformation and its correction for testing and coordinate estimations
-                    linear_transf[i] = T
-            linear_transformation[level-1] = linear_transf
-            if self.verbose:
-                sys.stdout.write('\rHierarchy level %i (transformation):%6.1f%%' % (level-1, 100.) )
-                sys.stdout.flush()
-                print("")
-
+#               Convexity check per cluster for their new MDS
+                self.convexity_check( C[newcl], C_prev, ind_A, dist_anchor, mds_anchor, embedding_h, 
+                                      precision='E'+str(precision_qhull) ) 
+                if level == 1:
+                    self.anchor_indices = [ind_A[i][self.order_anchor[i]] for i in C[newcl]]
+#               Transformation from previous level to the new one
+                self.transform_2d( C[newcl], C_prev, ind_A, mds_clusters )  
+                name_level = str(level-1) + str(newcl)
+                self.transformations[name_level] = self.transf
+                
             if hierarchy[level] > 1:
 #               Reassign the label "previous" to the new results
-                M_prev = M_prev[m]
+                M_prev = M_prev[M]
                 C_prev = C_new
-                mds_clusters = transf_coordinates
+                mds_clusters = self.sparse_coordinates
 
 #       These indices refer to the dist_matrix; we need to make sure that the information required to retrieve  <-- comment
 #       the atomic structures from the original data base are consistent with the sparsification technique used <-- comment
 #       We should also give the option to output the mds coordinates to the xyz file and generate carved xyz    <-- comment
 #       structures around the medoids for plotting                                                              <-- comment
         self.has_clmds = True
-        self.sparse_coordinates = transf_coordinates
         self.sparse_clusters = ind_clusters
         self.sparse_medoids = ind_medoids
-        self.linear_transformation = linear_transformation
-        self.correction_medoids = correction
 
         sparse_cluster_indices = np.empty(len(self.dist_matrix), dtype=int)
         for i in range(0, hierarchy[0]):
@@ -521,12 +477,191 @@ class clMDS:
             for level in range(1, n_levels-1):
                 int_indices = np.empty(len(self.dist_matrix), dtype=int)
                 for i in range(0, hierarchy[level]):
-                    cluster = C_int[level][i]
+                    cluster = C_hierarchy[level][i]
                     int_indices[cluster] = i                    
                 sparse_int_cluster_indices[level] = int_indices
 
             self.sparse_int_cluster_indices = sparse_int_cluster_indices
 
+
+
+#   This method checks the presence of pathological arrangements of anchor points in the MDS (i.e. non-convex
+#   and self-intersecting results) and improves the final MDS solution (free of pathologies)
+    def convexity_check(self, clusters, prev_clusters, ind_anchor, dist_anchor, 
+                        mds_anchor, embedding, max_perm=6, precision=None): 
+        no_pathologies = 0
+        final_vertices = []
+        N_anchor = np.zeros((len(clusters)+1, ), dtype=int)
+        if not precision:
+            precision = 'QbB'
+        for m, i in enumerate(clusters):
+            if self.verbose:
+                sys.stdout.write( '\rChecking convexity:%6.1f%%' % (float(m)*100./float(len(clusters)))  )
+                sys.stdout.flush()
+            N_anchor[m+1] = N_anchor[m] + len(ind_anchor[m])
+            if len(prev_clusters[i]) <= 4:
+                final_vertices.append(np.arange(0, len(prev_clusters[i]), 1))
+                no_pathologies += 1
+                continue
+#           Check if there is a pathological quadrilateral (non-convex)
+            hull = ConvexHull( mds_anchor[N_anchor[m]:N_anchor[m+1], :], qhull_options=precision )
+            vertices = hull.vertices
+            if len(vertices) == 3:
+                final_vertices.append(vertices)
+                no_pathologies += 0.5
+            elif len(vertices) == 4:
+#               Check if there is a pathological quadrilateral (self-intersecting)
+                go_ahead = checkpermutation( ind_anchor[i][vertices], ind_anchor[i], verbose=self.verbose )
+                if go_ahead:
+                    final_vertices.append(vertices)
+                    no_pathologies += 1
+                else:
+                    n_perm = 0       
+                    temp_vertices = np.copy(vertices)
+                    temp_mds = np.copy(mds_anchor)
+                    while not go_ahead or (n_perm == max_perm):
+#                       We need to permute the anchor coordinates for this cluster
+                        perm_cluster = temp_mds[N_anchor[m]:N_anchor[m+1], :]
+                        n_cycle = np.where(vertices == 0)[0][0]
+                        perm_0 = np.roll(vertices, -n_cycle)
+                        if (perm_0[1] == 2) & (n_perm <= 3): 
+                            n_perm+=1
+                            perm_cluster[[0,3]] = perm_cluster[[3,0]]
+                        elif (perm_0[1] == 2): 
+                            n_perm+=1
+                            perm_cluster[[1,2]] = perm_cluster[[2,1]]
+                        else:
+                            n_perm+=1
+                            perm_cluster[[0,1]] = perm_cluster[[1,0]]
+                        init_embed = temp_mds
+                        init_embed[N_anchor[m]:N_anchor[m+1], :] = perm_cluster
+                        new_embed = embedding.fit(dist_anchor, init=init_embed) 
+                        temp_mds = new_embed.embedding_
+                        hull = ConvexHull( temp_mds[N_anchor[m]:N_anchor[m+1], :], qhull_options=precision )
+                        temp_vertices = hull.vertices
+#                       Check if the convex hull is a triangle now
+                        if len(temp_vertices) == 3:
+                            go_ahead = True
+                            temp_pathologies = 0.5
+                        elif len(temp_vertices) == 4:
+                            go_ahead = checkpermutation( ind_anchor[i][temp_vertices], 
+                                                         ind_anchor[i], verbose=self.verbose )        
+                            temp_pathologies = 1
+                        else: 
+#                           Improve this error message                                                          <-- check this
+                            raise Warning("This is a pathological choice of anchor points, check cluster ", i) 
+                    if n_perm == max_perm:
+#                       We reached the maximum number of permutations
+#                       Improve this choice (maybe triangle with maximum area in MDS local?)                    <-- comment
+#                       BE CAREFUL with the MDS (do I need to remove the 4th vertex?)                           <-- comment
+                        final_vertices.append(vertices[:3]) 
+#                       Improve this print                                                                      <-- comment
+                        print("\rSelf-intersecting quadrilateral on cluster %i, a linear transformation \
+                                 will be used instead with anchor points " % i, final_vertices[i])
+                    else:
+#                       The current cluster is now non-pathological
+#                       Check the effects of the new MDS on the convexity of the previous clusters
+                        new_vertices = []
+                        for j in range(0, i):
+                            if len(ind_anchor[j]) <= 3:
+                                temp_pathologies += 1
+                                new_vertices.append(final_vertices[j])
+                            else:
+                                h = ConvexHull( temp_mds[N_anchor[j]:N_anchor[j+1], :], qhull_options=precision )
+                                if len(h.vertices) == 3:
+                                    temp_pathologies += 0.5
+                                    new_vertices.append(h.vertices)
+                                else:
+                                    if checkpermutation( ind_anchor[j][h.vertices], ind_anchor[j], 
+                                                         verbose=self.verbose ):
+                                        temp_pathologies += 1
+                                        new_vertices.append(h.vertices)
+                                    else:
+                                        new_vertices.append(h.vertices[:3])
+#                                       Improve this print                                                       <-- comment
+                                        print("\rSelf-intersecting quadrilateral on cluster %i, a linear \
+                                               transf. will be used instead with anchor points " % j, 
+                                              ind_anchor[j][h.vertices[:3]])
+                        if temp_pathologies > no_pathologies:
+                            no_pathologies = temp_pathologies
+                            mds_anchor = temp_mds
+                            final_vertices = new_vertices + [temp_vertices]
+                        else:
+#                           We keep the previous MDS
+#                           Improve this choice (maybe triangle with maximum area in MDS local?)                 <-- comment
+#                           BE CAREFUL with the MDS (do I need to remove the 4th vertex?)                        <-- comment
+                            final_vertices.append(vertices[:3])             
+            else:
+#               We have a problem here (the code is assigning a wrong number of anchor points or its 
+#               global MDS is a perfect line)                                                               
+#               Improve this error message                                                                       <-- check this
+                raise Warning("This is a highly pathological choice of anchor points, check cluster ", i) 
+        if self.verbose:
+            sys.stdout.write( '\rChecking convexity:%6.1f%%' % 100. )
+            sys.stdout.flush()
+            print("")
+
+        self.final_n_anchor = N_anchor 
+        self.order_anchor = final_vertices
+        self.mds_anchor = mds_anchor
+
+
+
+#   This method transforms each cluster from one 2D space (previous) to another (new)
+#   The choice of transformation depends on the anchor points for each cluster (linear or homography transf.)
+    def transform_2d(self, clusters, prev_clusters, ind_anchor, mds_clusters):
+        N_anchor = self.final_n_anchor
+        self.transf = []
+        for m, i in enumerate(clusters):
+            if self.verbose:
+                sys.stdout.write( '\rPerforming transformations:%6.1f%%' % (float(m)*100./float(len(clusters))) )
+                sys.stdout.flush()
+#           CASE 1: cluster with 3 elements or less (if it has 4 elements we perform a linear transf.)
+            if len(prev_clusters[i]) < 4:
+                self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[m]:N_anchor[m+1], :]
+                continue
+
+            indexes = ind_anchor[i][self.order_anchor[i]]
+            X_prev = mds_clusters[indexes,:]
+            X_new = self.mds_anchor[N_anchor[m]:N_anchor[m+1], :][self.order_anchor[i]]
+            diff_X_prev = X_prev - X_prev[1,:]
+            diff_X_new = X_new - X_new[1,:]
+#           CASE 2: cluster with 3 anchor points (linear transformation)
+            if len(self.order_anchor[i]) == 3:
+                T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0] - 0.01*np.eye(2,2)
+#               Transform and translate each cluster to the origin of its transf. matrix T
+                product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[0,:], T)
+                self.sparse_coordinates[prev_clusters[i], :] = product + X_new[0,:]
+#           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
+            elif len(self.order_anchor[i]) == 4:
+                axis = np.array([[1,0],[0,0],[0,1]])     
+                T_prev = np.linalg.lstsq(diff_X_prev[:3,:], axis, rcond=None)[0]
+                T_new = np.linalg.lstsq(diff_X_new[:3,:], axis, rcond=None)[0]
+                T_new_inv = np.linalg.lstsq(axis, diff_X_new[:3,:], rcond=None)[0]
+                a, b = np.dot(diff_X_prev[-1,:], T_prev)
+                c, d = np.dot(diff_X_new[-1,:], T_new)
+                s = a + b - 1
+                t = c + d - 1
+#               Decide if we should keep these warnings                                                         <-- comment 
+                if s <= 0:
+                    print('Warning: The original quadrilateral is non-convex, cluster ', i)
+                if t <= 0:
+                    print('Warning: The final quadrilateral is non-convex, cluster ', i)
+                F = np.array([[b*c*s,     0, b*(c*s - a*t)],
+                              [    0, a*d*s, a*(d*s - b*t)],
+                              [    0,     0,         a*b*t]])
+                transf_prev = np.dot(mds_clusters[prev_clusters[i]]- X_prev[1,:], T_prev)
+                transf_prev_homog = np.concatenate((transf_prev, np.ones((len(transf_prev),1))), axis=1)
+                perspective_homog =  np.dot(transf_prev_homog, F)
+                perspective = perspective_homog/perspective_homog[:,-1][:,None] 
+                self.sparse_coordinates[prev_clusters[i]] = np.dot(perspective[:,:2], T_new_inv) + X_new[1,:]
+            else:
+                raise Warning("There must be something wrong, check the list of anchor points: ", ind_anchor)
+#           Save the transformation and its correction for testing and coordinate estimations                    !!!!!!!!!!!
+        if self.verbose:
+            sys.stdout.write( '\rPerforming transformations:%6.1f%%' % 100. )
+            sys.stdout.flush()
+            print("")            
 
 
 #   This is a user friendly function that returns the clusters and medoids of the sparse set
@@ -812,11 +947,43 @@ class clMDS:
 
 
 #************************************************************************************************************
-# Suporting functions 
+#******************************************* Suporting functions ********************************************
+
+# This method chooses the kmedoids clustering with minimum intra-cluster incoherence (relative or total)
+def optim_kmedoids(D, n_clusters, incoherence="rel", n_iter=100,  tmax=100, 
+                   init_Ms="random", n_iso=None, verbose=False):
+    if verbose:
+        print("")
+    for t in range(0, n_iter):
+        if verbose:
+            sys.stdout.write('\rClustering data:%6.1f%%' % (float(t)*100./float(n_iter)) )
+            sys.stdout.flush()
+        temp_M, temp_C = kmedoids.kMedoids( D, n_clusters, tmax=tmax, 
+                                            init_Ms=init_Ms, n_iso=n_iso )
+#       Relative intra-cluster incoherence
+        temp_I = 0.
+        for i in range(0, n_clusters):
+            if incoherence == "rel":
+                temp_I += np.sum(D[temp_M[i]][temp_C[i]])/len(temp_C[i])
+            elif incoherence == "tot":
+                temp_I += np.sum(D[temp_M[i]][temp_C[i]])
+            else:
+                raise Exception("Wrong incoherence option, choose between: rel, tot")
+#       Minimize this value
+        if (t == 0) or (temp_I <= I):
+            M, C, I = temp_M, temp_C, temp_I
+
+    if verbose:
+        sys.stdout.write('\rClustering data:%6.1f%%' % 100. )
+        sys.stdout.flush()
+        print("")
+
+    return M, C
+
 
 # Given a dataset, this method choose the N points corresponding to the N vertices of the polygon that fulfils  
 # the selected criterion (area, number of points)
-def anchor_points(N, points, method=None, n_random=None, criterion="area"):
+def anchor_points(N, points, method=None, n_random=None, criterion="area", precision=1.e-8):
     """
     3 available methods: 
         None (default) = use all possible combinations (without repetition) of the points given 
@@ -835,16 +1002,17 @@ def anchor_points(N, points, method=None, n_random=None, criterion="area"):
     n_comb = comb(len(points), N, exact=True)
     indexes = np.arange(0, len(points),1)
 #   Generate vertices and their possible combinations
-    h = ConvexHull(points)
+    precision_opt = 'E'+str(precision)
+    h = ConvexHull(points, qhull_options=precision_opt)
     external_ind = h.vertices
     if len(external_ind) <= N:
         return points[external_ind]
     if method == "optimized":
-        h = ConvexHull(points)
+        h = ConvexHull(points, qhull_options=precision_opt)
         external_ind = h.vertices
         while len(external_ind) < 0.7*len(points) and len(external_ind) < 30:
             temp = points[ ~np.isin(indexes, external_ind), :]
-            h = ConvexHull(temp)
+            h = ConvexHull(temp, qhull_options=precision_opt)
             temp_vert = [np.where(pt == points)[0][0] for pt in temp[h.vertices,:]]
             external_ind = np.concatenate((external_ind, temp_vert))
         vertices = itertools.combinations(np.sort(external_ind), N)
@@ -864,13 +1032,13 @@ def anchor_points(N, points, method=None, n_random=None, criterion="area"):
     for vert in vertices:
         temp_anchor = points[vert,:]
         if criterion == "area":
-            h = ConvexHull(temp_anchor)
+            h = ConvexHull(temp_anchor, qhull_options=precision_opt)
             s = h.volume
             temp_anchor = temp_anchor[h.vertices] 
         elif criterion == "points":
             temp_ind = indexes[ ~np.isin(indexes, vert) ]
             other_points = points[temp_ind,:]
-            s = points_in_polygon(N, temp_anchor, other_points)
+            s = points_in_polygon(N, temp_anchor, other_points, qhull_opt=precision_opt)
         else:
             raise Exception("Choose a criterion included in the options: area, points")
         if s > s_opt:
@@ -880,18 +1048,43 @@ def anchor_points(N, points, method=None, n_random=None, criterion="area"):
     return anchor_p
 
 
-
 # Computation of the number of points of a given set lying within a polygon with N vertices
-def points_in_polygon(N, vertices, other_points):
+def points_in_polygon(N, vertices, other_points, qhull_opt='QbB'):
     s=0
     if N != len(vertices):
         print("You need to provide %i vertices exactly" % N)
     for point in other_points:
         temp = np.concatenate((vertices, point[None,:]), axis=0)
-        h = ConvexHull(temp)
+        h = ConvexHull(temp, qhull_options=qhull_opt)
         if len(h.vertices) == N:
             if set(range(0,N)) <= set(h.vertices):  
                 s += 1
     return s
+    
+    
+# Find if a set of points is a cyclic permutation or a reflection (or both) of another set
+# Should we keep the verbose?                                                                                   <-- comment
+def checkpermutation(x, y, verbose=False):
+    if len(x) != len(y):
+        verdict = False
+        if verbose:
+            print("The arrays have different length, x can't be a permutation of y")
+            print("x: ", x, ", y: ", y)
+    else:
+        cyclic_group = np.concatenate((y,y), axis=0)
+        inv_cyclic_group = cyclic_group[::-1]
+        i = np.where(cyclic_group == x[0])[0][0]
+        i_inv = np.where(inv_cyclic_group == x[0])[0][0]
+        if (cyclic_group[i:i+len(x)] == x).all():
+            verdict = True
+            if verbose:
+                print(x, " is a cyclic permutation of ", y)
+        elif (inv_cyclic_group[i_inv:i_inv+len(x)] == x).all():
+            verdict = True
+            if verbose:
+                print(x, " is an inverted cyclic permutation of ", y)
+        else:
+            verdict = False
+    return verdict
 
 #************************************************************************************************************
