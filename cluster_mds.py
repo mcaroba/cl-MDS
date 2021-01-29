@@ -324,8 +324,9 @@ class clMDS:
                 raise Exception("You need to define a hierarchy of cluster levels by providing the \
                                  hierarchy parameter, e.g., [8,1] or [8,3,1]")
             if len(hierarchy) == 1:
-                hierarchy.append([1])
+                hierarchy.append(1)
         elif isinstance(hierarchy, int):
+            n_clusters = hierarchy
             hierarchy = [hierarchy, 1]
         else:
             raise Exception("You need to define a hierarchy of cluster levels by providing the \
@@ -362,7 +363,7 @@ class clMDS:
             sys.stdout.flush()
             print("")
         
-        self.mds_sparse_clusters = mds_clusters
+        self.local_sparse_coordinates = mds_clusters
 
 #       Hierarchy levels
         n_levels = len(hierarchy)
@@ -370,8 +371,7 @@ class clMDS:
         C_prev = ind_clusters
 
         embedding_h = manifold.MDS( n_components=2, dissimilarity="precomputed", n_init=n_init_mds_anchor,
-                                    max_iter=max_iter_anchor, n_jobs=n_jobs_anchor, verbose=verbose_anchor )
-                                    
+                                    max_iter=max_iter_anchor, n_jobs=n_jobs_anchor, verbose=verbose_anchor )                       
         C_hierarchy = {}
         A_hierarchy = {}
         T_hierarchy = {}
@@ -444,11 +444,13 @@ class clMDS:
                 if len(A) > 2:
                     mds_anchor = embedding_h.fit_transform(dist_anchor)
 #                   Convexity check per cluster for their new MDS
-                    self.convexity_check( C[newcl], C_prev, temp_A, dist_anchor, mds_anchor,
-                                          embedding_h, precision='E'+str(precision_qhull) ) 
+                    embedding_h.set_params(n_init=1)
+                    prev_clusters = [C_prev[cl] for cl in C[newcl]]
+                    self.convexity_check( C[newcl], prev_clusters, temp_A, dist_anchor, mds_anchor,
+                                          embedding_h, precision = precision_qhull ) 
+                    embedding_h.set_params(n_init=n_init_mds_anchor)
 #                   Transformation from previous level to the new one
                     self.transform_2d( C[newcl], C_prev, temp_A, mds_clusters )
-                    temp_A = [temp_A[i][self.order_anchor[i]] for i in range(0, len(C[newcl]))]
                 else:
                     if len(A) == 2:
                         mds_anchor = embedding_h.fit_transform(dist_anchor)
@@ -459,8 +461,9 @@ class clMDS:
                     self.sparse_coordinates[A] = mds_anchor      
                     self.transformation = np.eye(2)
 
-                A_hierarchy.setdefault(level, {})[newcl] = temp_A
-                T_hierarchy.setdefault(level, {})[newcl] = self.transformation
+                for i, cl in enumerate(C[newcl]):
+                    A_hierarchy[level, newcl, cl] = ind_A[cl][self.order_anchor[i]]
+                    T_hierarchy[level, newcl, cl] = self.transformation[i]
                 
             if hierarchy[level] > 1:
 #               Reassign the label "previous" to the new results
@@ -505,26 +508,28 @@ class clMDS:
         no_pathologies = 0
         final_vertices = []
         N_anchor = np.zeros((len(clusters)+1, ), dtype=int)
-        if not precision:
+        if precision:
+            precision = 'E' + str(precision)
+        else:
             precision = 'QbB'
-        for m, i in enumerate(clusters):
+        for i in range(0, len(clusters)):
             if self.verbose:
-                sys.stdout.write( '\rChecking convexity:%6.1f%%' % (float(m)*100./float(len(clusters)))  )
+                sys.stdout.write( '\rChecking convexity:%6.1f%%' % (float(i)*100./float(len(clusters)))  )
                 sys.stdout.flush()
-            N_anchor[m+1] = N_anchor[m] + len(ind_anchor[m])
-            if len(prev_clusters[i]) == len(ind_anchor[m]):
+            N_anchor[i+1] = N_anchor[i] + len(ind_anchor[i])
+            if len(prev_clusters[i]) == len(ind_anchor[i]):
                 final_vertices.append(np.arange(0, len(prev_clusters[i]), 1))
                 no_pathologies += 1
                 continue
 #           Check if there is a pathological quadrilateral (non-convex)
-            hull = ConvexHull( mds_anchor[N_anchor[m]:N_anchor[m+1], :], qhull_options=precision )
+            hull = ConvexHull( mds_anchor[N_anchor[i]:N_anchor[i+1], :], qhull_options=precision )
             vertices = hull.vertices
             if len(vertices) == 3:
                 final_vertices.append(vertices)
                 no_pathologies += 0.5
             elif len(vertices) == 4:
 #               Check if there is a pathological quadrilateral (self-intersecting)
-                go_ahead = checkpermutation( ind_anchor[m][vertices], ind_anchor[m], verbose=self.verbose )
+                go_ahead = checkpermutation( ind_anchor[i][vertices], ind_anchor[i], verbose=self.verbose )
                 if go_ahead:
                     final_vertices.append(vertices)
                     no_pathologies += 1
@@ -534,7 +539,7 @@ class clMDS:
                     temp_mds = np.copy(mds_anchor)
                     while not go_ahead and (n_perm != max_perm):
 #                       We need to permute the anchor coordinates for this cluster
-                        perm_cluster = temp_mds[N_anchor[m]:N_anchor[m+1], :]
+                        perm_cluster = temp_mds[N_anchor[i]:N_anchor[i+1], :]
                         n_cycle = np.where(vertices == 0)[0][0]
                         perm_0 = np.roll(vertices, -n_cycle)
                         if (perm_0[1] == 2) & (n_perm <= 3): 
@@ -547,18 +552,18 @@ class clMDS:
                             n_perm+=1
                             perm_cluster[[0,1]] = perm_cluster[[1,0]]
                         init_embed = temp_mds
-                        init_embed[N_anchor[m]:N_anchor[m+1], :] = perm_cluster
+                        init_embed[N_anchor[i]:N_anchor[i+1], :] = perm_cluster
                         new_embed = embedding.fit(dist_anchor, init=init_embed) 
                         temp_mds = new_embed.embedding_
-                        hull = ConvexHull( temp_mds[N_anchor[m]:N_anchor[m+1], :], qhull_options=precision )
+                        hull = ConvexHull( temp_mds[N_anchor[i]:N_anchor[i+1], :], qhull_options=precision )
                         temp_vertices = hull.vertices
 #                       Check if the convex hull is a triangle now
                         if len(temp_vertices) == 3:
                             go_ahead = True
                             temp_pathologies = 0.5
                         elif len(temp_vertices) == 4:
-                            go_ahead = checkpermutation( ind_anchor[m][temp_vertices], 
-                                                         ind_anchor[m], verbose=self.verbose )        
+                            go_ahead = checkpermutation( ind_anchor[i][temp_vertices], 
+                                                         ind_anchor[i], verbose=self.verbose )        
                             temp_pathologies = 1
                         else: 
 #                           Improve this error message                                                          <-- check this
@@ -631,6 +636,7 @@ class clMDS:
 #           CASE 1: cluster with 3 elements or less (if it has 4 elements we perform a linear transf.)
             if len(prev_clusters[i]) < 4:
                 self.sparse_coordinates[ind_anchor[m],:] = self.mds_anchor[N_anchor[m]:N_anchor[m+1], :]
+                self.transformation.append( np.eye(2) )
                 continue
 
             indexes = ind_anchor[m][self.order_anchor[m]]
@@ -640,10 +646,11 @@ class clMDS:
             diff_X_new = X_new - X_new[1,:]
 #           CASE 2: cluster with 3 anchor points (linear transformation)
             if len(self.order_anchor[m]) == 3:
-                T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0] - 0.01*np.eye(2,2)
+                T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
 #               Transform and translate each cluster to the origin of its transf. matrix T
-                product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[0,:], T)
-                self.sparse_coordinates[prev_clusters[i], :] = product + X_new[0,:]
+                product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[1,:], T)
+                self.sparse_coordinates[prev_clusters[i], :] = product + X_new[1,:]
+                self.transformation.append(T)
 #           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
             elif len(self.order_anchor[m]) == 4:
                 axis = np.array([[1,0],[0,0],[0,1]])     
@@ -667,6 +674,7 @@ class clMDS:
                 perspective_homog =  np.dot(transf_prev_homog, F)
                 perspective = perspective_homog/perspective_homog[:,-1][:,None] 
                 self.sparse_coordinates[prev_clusters[i]] = np.dot(perspective[:,:2], T_new_inv) + X_new[1,:]
+                self.transformation.append( [T_prev, F, T_new_inv] )
             else:
                 raise Warning("There must be something wrong, check the list of anchor points: ", ind_anchor)
 #           Save the transformation and its correction for testing and coordinate estimations                    !!!!!!!!!!!
@@ -689,7 +697,7 @@ class clMDS:
               
 
 #   This method gives a "cheap" estimation of the MDS coordinates of the points not included in the sparse set
-    def compute_estim_coordinates(self, hierarchy):
+    def compute_estim_coordinates(self, hierarchy, precision=1.e-8):
         if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
@@ -715,7 +723,7 @@ class clMDS:
             dist_med = np.zeros(hierarchy[0])
             for j, med in enumerate(self.sparse_medoids):
                 prod = np.dot(self.descriptor[i], sparse_descriptor[med])**self.zeta 
-                if prod < 1.:
+                if prod <= 1. - precision:
                     dist_med[j] =  np.sqrt(1. - prod)
                 else:
                     dist_med[j] = 0.
@@ -759,8 +767,8 @@ class clMDS:
 
             dist_sparse_cluster = self.dist_matrix[np.ix_(C_sparse, C_sparse)]
             dist_medoid = self.dist_matrix[self.sparse_medoids[i], C_sparse]
-            local_mds_sparse = self.mds_sparse_clusters[C_sparse,:]
-            local_mds_medoid = self.mds_sparse_clusters[self.sparse_medoids[i],:]
+            local_mds_sparse = self.local_sparse_coordinates[C_sparse,:]
+            local_mds_medoid = self.local_sparse_coordinates[self.sparse_medoids[i],:]
             global_mds_medoid = self.sparse_coordinates[self.sparse_medoids[i], :] 
 #           transformation matrix T from distance space to 2D ( X·T = Y)
             X_anchor = dist_sparse_cluster
@@ -1043,10 +1051,17 @@ def anchor_points(N, points, method=None, n_random=None, criterion="area", preci
     for vert in vertices:
         temp_anchor = points[vert,:]
         if criterion == "area":
-            h = ConvexHull(temp_anchor, qhull_options=precision_opt)
+            try:
+                h = ConvexHull(temp_anchor, qhull_options=precision_opt)
+            except:
+                continue
             s = h.volume
             temp_anchor = temp_anchor[h.vertices] 
         elif criterion == "points":
+            try:
+                h = ConvexHull(temp_anchor, qhull_options=precision_opt)
+            except:
+                continue
             temp_ind = indexes[ ~np.isin(indexes, vert) ]
             other_points = points[temp_ind,:]
             s = points_in_polygon(N, temp_anchor, other_points, qhull_opt=precision_opt)
