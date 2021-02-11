@@ -372,9 +372,9 @@ class clMDS:
 
         embedding_h = manifold.MDS( n_components=2, dissimilarity="precomputed", n_init=n_init_mds_anchor,
                                     max_iter=max_iter_anchor, n_jobs=n_jobs_anchor, verbose=verbose_anchor )                       
+        H = {}                  
         C_hierarchy = {}
-        A_hierarchy = {}
-        T_hierarchy = {}
+        T_hierarchy = {i:{} for i in range(0, n_clusters)}
         for level in range(1, n_levels):
             if self.verbose:
                 print("")
@@ -397,6 +397,9 @@ class clMDS:
             else:
                 raise Exception("There is a wrong entry in the hierarchy parameter, it must have \
                                  non-zero integers only (e.g. hierarchy=[8,1])")
+            if level == 1:
+                H[level-1] = {i: np.array([i]) for i in range(0, n_clusters)}
+            H[level] = {i: np.concatenate( ([H[level-1][j] for j in C[i]]) ) for i in C}
 
 #           Obtention of anchor points (consider anchor points AND medoids separately)
             mds_M_prev = mds_clusters[M_prev]
@@ -458,12 +461,17 @@ class clMDS:
                         mds_anchor = np.zeros((1,2)) # avoid sklearn RuntimeWarning
                     else:
                         raise Exception("No anchor points in this clustering, something is wrong")
-                    self.sparse_coordinates[A] = mds_anchor      
+                    self.sparse_coordinates[A,:] = mds_anchor      
                     self.transformation = np.eye(2)
 
                 for i, cl in enumerate(C[newcl]):
-                    A_hierarchy[level, newcl, cl] = ind_A[cl][self.order_anchor[i]]
-                    T_hierarchy[level, newcl, cl] = self.transformation[i]
+                    for j in H[level-1][cl]:
+                        T_hierarchy[j].setdefault(level,{})["cluster"] = newcl
+                        if len(A) > 2:
+                            T_hierarchy[j].setdefault(level,{})["anchor"] = ind_A[cl][self.order_anchor[i]]
+                        else:
+                            T_hierarchy[j].setdefault(level,{})["anchor"] = ind_A[cl]
+                        T_hierarchy[j].setdefault(level,{})["transf"] = self.transformation[i]
                 
             if hierarchy[level] > 1:
 #               Reassign the label "previous" to the new results
@@ -478,7 +486,6 @@ class clMDS:
         self.has_clmds = True
         self.sparse_clusters = ind_clusters
         self.sparse_medoids = ind_medoids
-        self.anchor_indices = A_hierarchy
         self.all_transformations = T_hierarchy
 
         sparse_cluster_indices = np.empty(len(self.dist_matrix), dtype=int)
@@ -529,7 +536,7 @@ class clMDS:
                 no_pathologies += 0.5
             elif len(vertices) == 4:
 #               Check if there is a pathological quadrilateral (self-intersecting)
-                go_ahead = checkpermutation( ind_anchor[i][vertices], ind_anchor[i], verbose=self.verbose )
+                go_ahead = checkpermutation( ind_anchor[i][vertices], ind_anchor[i], verbose=False )
                 if go_ahead:
                     final_vertices.append(vertices)
                     no_pathologies += 1
@@ -563,7 +570,7 @@ class clMDS:
                             temp_pathologies = 0.5
                         elif len(temp_vertices) == 4:
                             go_ahead = checkpermutation( ind_anchor[i][temp_vertices], 
-                                                         ind_anchor[i], verbose=self.verbose )        
+                                                         ind_anchor[i], verbose=False )        
                             temp_pathologies = 1
                         else: 
 #                           Improve this error message                                                          <-- check this
@@ -574,8 +581,9 @@ class clMDS:
 #                       BE CAREFUL with the MDS (do I need to remove the 4th vertex?)                           <-- comment
                         final_vertices.append(vertices[:3]) 
 #                       Improve this print                                                                      <-- comment
-                        print("\rSelf-intersecting quadrilateral on cluster %i, a linear transformation \
-                                 will be used instead with anchor points " % i, final_vertices[i])
+                        if self.verbose:
+                            print("\rSelf-intersecting quadrilateral on cluster %i, a linear transformation \
+                                     will be used instead with anchor points " % i, final_vertices[i])
                     else:
 #                       The current cluster is now non-pathological
 #                       Check the effects of the new MDS on the convexity of the previous clusters
@@ -591,15 +599,16 @@ class clMDS:
                                     new_vertices.append(h.vertices)
                                 else:
                                     if checkpermutation( ind_anchor[j][h.vertices], ind_anchor[j], 
-                                                         verbose=self.verbose ):
+                                                         verbose=False ):
                                         temp_pathologies += 1
                                         new_vertices.append(h.vertices)
                                     else:
                                         new_vertices.append(h.vertices[:3])
 #                                       Improve this print                                                       <-- comment
-                                        print("\rSelf-intersecting quadrilateral on cluster %i, a linear \
-                                               transf. will be used instead with anchor points " % j, 
-                                              ind_anchor[j][h.vertices[:3]])
+                                        if self.verbose:
+                                            print("\rSelf-intersecting quadrilateral on cluster %i, a linear \
+                                                     transf. will be used instead with anchor points " % j, 
+                                                   ind_anchor[j][h.vertices[:3]])
                         if temp_pathologies > no_pathologies:
                             no_pathologies = temp_pathologies
                             mds_anchor = temp_mds
@@ -636,7 +645,7 @@ class clMDS:
 #           CASE 1: cluster with 3 elements or less (if it has 4 elements we perform a linear transf.)
             if len(prev_clusters[i]) < 4:
                 self.sparse_coordinates[ind_anchor[m],:] = self.mds_anchor[N_anchor[m]:N_anchor[m+1], :]
-                self.transformation.append( np.eye(2) )
+                self.transformation.append( np.eye(2) ) #                                                     <--- check this
                 continue
 
             indexes = ind_anchor[m][self.order_anchor[m]]
@@ -694,7 +703,45 @@ class clMDS:
         ext_coordinates[0:self.n_env, 2] = self.sparse_cluster_indices
 
         return ext_coordinates
-              
+
+
+#   This is a user friendly  function that returns the anchor points, the cluster or/and 
+#   the transformations in each level of the hierarchy
+    def extract_transf_info(self, info=None):
+#       Extract specific information ("cluster", "anchor", "transf")
+        if info: 
+            n_levels = len(self.hierarchy)
+            I = {}
+            for level in range(1, n_levels):
+                I[level] = {j: [] for j in range(0, self.hierarchy[level])}
+                for i in range(0, self.hierarchy[0]):                        
+                    cl = self.all_transformations[i][level]["cluster"]
+                    if info == "cluster":
+                        I[level][cl].append( i )
+                    else:
+                        temp = self.all_transformations[i][level][info]
+                        print(type(temp))
+                        if np.array_equal(temp, np.eye(2)):
+                            I[level][cl].append(temp)
+                            continue
+                        already_there = False
+                        for k in I[level][cl]:
+                            if type(k) == type(temp) and len(k) == len(temp):
+                                if isinstance(temp, np.ndarray) and np.allclose(temp, k):
+                                    already_there = True
+                                    break
+                                elif isinstance(temp, list) and next( np.allclose(temp[j], k[j]) for j in range(0, 3) ):
+                                    already_there = True  
+                                    break   
+                        if not already_there:
+                            I[level][cl].append(temp)
+            return I
+#       Extract ALL the information in different arrays
+        H = self.extract_transf_info(info="cluster") 
+        A = self.extract_transf_info(info="anchor") 
+        T = self.extract_transf_info(info="transf") 
+        return H, A, T
+
 
 #   This method gives a "cheap" estimation of the MDS coordinates of the points not included in the sparse set
     def compute_estim_coordinates(self, hierarchy, precision=1.e-8):
