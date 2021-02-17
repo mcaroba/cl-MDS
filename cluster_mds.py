@@ -113,7 +113,7 @@ class clMDS:
                     self.sparsify = sparsify
                     self.n_sparse = n_sparse
                 if sparsify == "cur" and self.has_dist_matrix:
-                    self.sparse_list = cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]
+                    self.sparse_list = list(set(cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]))
                     self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
 #               Implement the "optimized sparse set" as a sparsify option                                           <--- comment  
 
@@ -193,7 +193,7 @@ class clMDS:
                         if len(self.sparsify) > n_env:
                             raise Exception("The sparse set can't be larger than the complete dataset")
                         else: 
-                            sparse_list = sorted(self.sparsify)
+                            sparse_list = self.sparsify
                             self.sparse_list = sparse_list
                     elif self.sparsify == "random":
                         sparse_list = list(range(n_env))
@@ -244,7 +244,7 @@ class clMDS:
                     n += 1
             descriptor = np.array(descriptor)
             if self.sparsify == "cur":
-                self.sparse_list = cur.cur_decomposition(descriptor, self.n_sparse)[-1]
+                self.sparse_list = list(set(cur.cur_decomposition(descriptor, self.n_sparse)[-1]))
                 descriptor = descriptor[self.sparse_list,:]
             if self.verbose:
                 sys.stdout.write('\rComputing descriptors:%6.1f%%' % 100. )
@@ -307,14 +307,30 @@ class clMDS:
     def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
                     n_anchor=4, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
-                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1.e-7):
+                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1e-7):
         """
-        NOTE: Use hierarchy = [n_clusters, n_level1, n_level2, ... , 1] to perform hierarchical
-        embedding and clustering. There, n_clusters refers to the finest clustering (computed 
-        in the data n-dimensional space) and 1 refers to the final embedded 2d-space.
-        Depending on the chosen hierarchy, different local structures of the dataset can be 
-        weighted more during the computation. The simplest hierarchy system is [n_clusters, 1], 
-        where only one level of clustering is considered.
+        Parameters:
+
+        * Hierarchy
+        Use hierarchy = [n_clusters, n_level1, n_level2, ... , 1] to perform hierarchical embedding
+        and clustering, where n_clusters refers to the finest clustering (computed in the data
+        n-dimensional space) and 1 refers to the final embedded 2d-space.
+        Depending on the chosen hierarchy, different local structures of the dataset can be weighted 
+        more during the computation. The simplest hierarchy system is [n_clusters, 1], where only
+        one level of clustering is considered.
+
+        * Clustering (iter_med, tmax, init_medoids, n_iso_med)
+        Check kmedoids for further information.
+
+        * Embedding (Initial clusters: n_init_cluster, max_iter_cluster, n_jobs_cluster, verbose_cluster;
+                     Anchor points: n_init_mds_anchor, max_iter_anchor, n_jobs_anchor, verbose_anchor)
+        Check sklearn.manifold.MDS for additional information
+
+        * Anchor points (n_anchor, criterion_anchor, precision_qhull)
+        This method only supports n_anchor=3,4 (the anchor point selection process and later
+        transformations won't make sense with other values).
+        Check cluster_mds (anchor_points()) and scipy.spatial.ConvexHull for further information.
+
         """
         if isinstance(hierarchy, list):
             try:
@@ -410,27 +426,25 @@ class clMDS:
                     sys.stdout.write( '\rObtaining anchor points:%6.1f%%' 
                                       % (float(i)*100./float(hierarchy[level-1])) )
                     sys.stdout.flush()
-#               Exclude the medoid as a possible anchor point
-                C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
-#               Choose the procedure for the anchor points calculations depending on cluster length
-                if len(C_prev[i]) - 1 < 20:
-                    method_anchor = None
-                else:                                                       
-                    method_anchor = "optimized"
-#               MDS and indexes of anchor points in previous level
-                mds = anchor_points( n_anchor, mds_clusters[C_prev_nomed,:], method=method_anchor, 
-                                     criterion=criterion_anchor )
-                mds_A.append( mds )
-                indexes = [np.where(mds_clusters == mds[j])[0][0] for j in range(0, len(mds))]
-                ind_A.append( np.array(indexes) )
-                if len(C_prev[i]) >= n_anchor:
+                if len(C_prev[i]) <= n_anchor:
+                    mds_A.append( mds_clusters[C_prev[i],:] )
+                    ind_A.append( C_prev[i] )
+                else:
+#                   Exclude the medoid as a possible anchor point
+                    C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
+#                   Choose the procedure for the anchor points calculations depending on cluster length
+                    if len(C_prev[i]) - 1 < 20:
+                        method_anchor = None
+                    else:                                                       
+                        method_anchor = "optimized"
+#                   MDS and indexes of anchor points in previous level
+                    mds = anchor_points( n_anchor, mds_clusters[C_prev_nomed,:], method=method_anchor, 
+                                         criterion=criterion_anchor )
+                    indexes = [np.where(mds_clusters == mds[j])[0][0] for j in range(0, len(mds))]
 #                   Order of the anchor points on the previous level
                     h = ConvexHull(mds_clusters[indexes])
-                    mds_A[-1] = mds_A[-1][h.vertices]
-                    ind_A[-1] = ind_A[-1][h.vertices]
-                else:
-                    mds_A[-1] = np.concatenate((mds_A[-1], mds_M_prev[i,:][None,:]), axis=0)    
-                    ind_A[-1] = np.concatenate((ind_A[-1], [M_prev[i]])).astype('int32')
+                    mds_A.append( mds[h.vertices] )
+                    ind_A.append( np.array(indexes)[h.vertices] )
             if self.verbose:
                 sys.stdout.write('\rObtaining anchor points:%6.1f%%' % 100. )
                 sys.stdout.flush()
@@ -444,33 +458,25 @@ class clMDS:
                 temp_A = [ind_A[i] for i in C[newcl]] 
                 A = np.concatenate( temp_A ).astype('int32')
                 dist_anchor = self.dist_matrix[np.ix_(A, A)]
-                if len(A) > 2:
+                if len(A) == 1:
+                    self.sparse_coordinates[A,:] = np.zeros((1,2)) # avoid sklearn RuntimeWarning   
+                    self.order_anchor = [0]
+                    self.transformation = [0]
+                else:
                     mds_anchor = embedding_h.fit_transform(dist_anchor)
 #                   Convexity check per cluster for their new MDS
                     embedding_h.set_params(n_init=1)
-                    prev_clusters = [C_prev[cl] for cl in C[newcl]]
+                    prev_clusters = [C_prev[i] for i in C[newcl]]
                     self.convexity_check( C[newcl], prev_clusters, temp_A, dist_anchor, mds_anchor,
                                           embedding_h, precision = precision_qhull ) 
                     embedding_h.set_params(n_init=n_init_mds_anchor)
 #                   Transformation from previous level to the new one
-                    self.transform_2d( C[newcl], C_prev, temp_A, mds_clusters )
-                else:
-                    if len(A) == 2:
-                        mds_anchor = embedding_h.fit_transform(dist_anchor)
-                    elif len(A) == 1:
-                        mds_anchor = np.zeros((1,2)) # avoid sklearn RuntimeWarning
-                    else:
-                        raise Exception("No anchor points in this clustering, something is wrong")
-                    self.sparse_coordinates[A,:] = mds_anchor      
-                    self.transformation = np.eye(2)
+                    self.transform_2d( C[newcl], prev_clusters, temp_A, mds_clusters )
 
                 for i, cl in enumerate(C[newcl]):
                     for j in H[level-1][cl]:
                         T_hierarchy[j].setdefault(level,{})["cluster"] = newcl
-                        if len(A) > 2:
-                            T_hierarchy[j].setdefault(level,{})["anchor"] = ind_A[cl][self.order_anchor[i]]
-                        else:
-                            T_hierarchy[j].setdefault(level,{})["anchor"] = ind_A[cl]
+                        T_hierarchy[j].setdefault(level,{})["anchor"] = ind_A[cl][self.order_anchor[i]]
                         T_hierarchy[j].setdefault(level,{})["transf"] = self.transformation[i]
                 
             if hierarchy[level] > 1:
@@ -638,30 +644,30 @@ class clMDS:
     def transform_2d(self, clusters, prev_clusters, ind_anchor, mds_clusters):
         N_anchor = self.final_n_anchor
         self.transformation = []
-        for m, i in enumerate(clusters):
+        for i in range(0, len(clusters)):
             if self.verbose:
-                sys.stdout.write( '\rPerforming transformations:%6.1f%%' % (float(m)*100./float(len(clusters))) )
+                sys.stdout.write( '\rPerforming transformations:%6.1f%%' % (float(i)*100./float(len(clusters))) )
                 sys.stdout.flush()
 #           CASE 1: cluster with 3 elements or less (if it has 4 elements we perform a linear transf.)
-            if len(prev_clusters[i]) < 4:
-                self.sparse_coordinates[ind_anchor[m],:] = self.mds_anchor[N_anchor[m]:N_anchor[m+1], :]
-                self.transformation.append( np.eye(2) ) #                                                     <--- check this
+            if len(prev_clusters[i]) == len(ind_anchor[i]):
+                self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
+                self.transformation.append( [1] )
                 continue
 
-            indexes = ind_anchor[m][self.order_anchor[m]]
+            indexes = ind_anchor[i][self.order_anchor[i]]
             X_prev = mds_clusters[indexes,:]
-            X_new = self.mds_anchor[N_anchor[m]:N_anchor[m+1], :][self.order_anchor[m]]
+            X_new = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :][self.order_anchor[i]]
             diff_X_prev = X_prev - X_prev[1,:]
             diff_X_new = X_new - X_new[1,:]
 #           CASE 2: cluster with 3 anchor points (linear transformation)
-            if len(self.order_anchor[m]) == 3:
+            if len(self.order_anchor[i]) == 3:
                 T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
 #               Transform and translate each cluster to the origin of its transf. matrix T
                 product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[1,:], T)
                 self.sparse_coordinates[prev_clusters[i], :] = product + X_new[1,:]
                 self.transformation.append(T)
 #           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
-            elif len(self.order_anchor[m]) == 4:
+            elif len(self.order_anchor[i]) == 4:
                 axis = np.array([[1,0],[0,0],[0,1]])     
                 T_prev = np.linalg.lstsq(diff_X_prev[:3,:], axis, rcond=None)[0]
                 T_new = np.linalg.lstsq(diff_X_new[:3,:], axis, rcond=None)[0]
@@ -705,7 +711,7 @@ class clMDS:
         return ext_coordinates
 
 
-#   This is a user friendly  function that returns the anchor points, the cluster or/and 
+#   This is a user friendly function that returns the anchor points, the cluster or/and 
 #   the transformations in each level of the hierarchy
     def extract_transf_info(self, info=None):
 #       Extract specific information ("cluster", "anchor", "transf")
