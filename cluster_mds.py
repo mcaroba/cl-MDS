@@ -243,7 +243,7 @@ class clMDS:
                             descriptor.append(q)                       
                     n += 1
             descriptor = np.array(descriptor)
-            if self.sparsify == "cur":
+            if not self.compute_non_sparse and (self.sparsify == "cur"):
                 self.sparse_list = list(set(cur.cur_decomposition(descriptor, self.n_sparse)[-1]))
                 descriptor = descriptor[self.sparse_list,:]
             if self.verbose:
@@ -648,25 +648,28 @@ class clMDS:
             if self.verbose:
                 sys.stdout.write( '\rPerforming transformations:%6.1f%%' % (float(i)*100./float(len(clusters))) )
                 sys.stdout.flush()
-#           CASE 1: cluster with 3 elements or less (if it has 4 elements we perform a linear transf.)
-            if len(prev_clusters[i]) == len(ind_anchor[i]):
+#           CASE 1: cluster with 1 anchor point (translation)
+            if len(self.order_anchor[i]) == 1:
                 self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
-                self.transformation.append( [1] )
+                self.transformation.append( [0] )
                 continue
-
             indexes = ind_anchor[i][self.order_anchor[i]]
             X_prev = mds_clusters[indexes,:]
             X_new = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :][self.order_anchor[i]]
             diff_X_prev = X_prev - X_prev[1,:]
             diff_X_new = X_new - X_new[1,:]
-#           CASE 2: cluster with 3 anchor points (linear transformation)
-            if len(self.order_anchor[i]) == 3:
+#           CASE 2: cluster with 2 or 3 anchor points (linear transformation)
+            if len(self.order_anchor[i]) in [2,3]:
                 T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
-#               Transform and translate each cluster to the origin of its transf. matrix T
-                product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[1,:], T)
-                self.sparse_coordinates[prev_clusters[i], :] = product + X_new[1,:]
                 self.transformation.append(T)
-#           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
+                if len(prev_clusters[i]) in [2,3]:
+#                   Small clusters
+                    self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
+                else:
+#                   Transform and translate each cluster to the origin of its transf. matrix T
+                    product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[1,:], T)
+                    self.sparse_coordinates[prev_clusters[i], :] = product + X_new[1,:]
+#           CASE 2: cluster with 4 non-pathological anchor points (homography transf.)
             elif len(self.order_anchor[i]) == 4:
                 axis = np.array([[1,0],[0,0],[0,1]])     
                 T_prev = np.linalg.lstsq(diff_X_prev[:3,:], axis, rcond=None)[0]
@@ -677,22 +680,26 @@ class clMDS:
                 s = a + b - 1
                 t = c + d - 1
 #               Decide if we should keep these warnings                                                         <-- comment 
-                if s <= 0:
-                    print('Warning: The original quadrilateral is non-convex, cluster ', i)
-                if t <= 0:
-                    print('Warning: The final quadrilateral is non-convex, cluster ', i)
+                try:
+                    assert (s > 0) & (t > 0)    
+                except:
+                    raise Warning('The anchor points of cluster %i form a non-convex quadrilateral' % i)
                 F = np.array([[b*c*s,     0, b*(c*s - a*t)],
                               [    0, a*d*s, a*(d*s - b*t)],
                               [    0,     0,         a*b*t]])
-                transf_prev = np.dot(mds_clusters[prev_clusters[i]]- X_prev[1,:], T_prev)
-                transf_prev_homog = np.concatenate((transf_prev, np.ones((len(transf_prev),1))), axis=1)
-                perspective_homog =  np.dot(transf_prev_homog, F)
-                perspective = perspective_homog/perspective_homog[:,-1][:,None] 
-                self.sparse_coordinates[prev_clusters[i]] = np.dot(perspective[:,:2], T_new_inv) + X_new[1,:]
-                self.transformation.append( [T_prev, F, T_new_inv] )
+                self.transformation.append( [X_prev[1,:], T_prev, F, T_new_inv, X_new[1,:]] )
+                if len(prev_clusters[i]) == 4:
+#                   Small clusters
+                    self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
+                else:
+                    transf_prev = np.dot(mds_clusters[prev_clusters[i]]- X_prev[1,:], T_prev)
+                    transf_prev_homog = np.concatenate((transf_prev, np.ones((len(transf_prev),1))), axis=1)
+                    perspective_homog =  np.dot(transf_prev_homog, F)
+                    perspective = perspective_homog/perspective_homog[:,-1][:,None] 
+                    self.sparse_coordinates[prev_clusters[i]] = np.dot(perspective[:,:2], T_new_inv) + X_new[1,:]
             else:
                 raise Warning("There must be something wrong, check the list of anchor points: ", ind_anchor)
-#           Save the transformation and its correction for testing and coordinate estimations                    !!!!!!!!!!!
+
         if self.verbose:
             sys.stdout.write( '\rPerforming transformations:%6.1f%%' % 100. )
             sys.stdout.flush()
@@ -750,7 +757,7 @@ class clMDS:
 
 
 #   This method gives a "cheap" estimation of the MDS coordinates of the points not included in the sparse set
-    def compute_estim_coordinates(self, hierarchy, precision=1.e-8):
+    def compute_estim_coordinates(self, hierarchy, precision=1e-8):
         if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
@@ -789,20 +796,16 @@ class clMDS:
 #       Compute the transformation from kernel space to 2D
         local_coordinates = np.zeros((all_env,2))       
         transf_coordinates = np.zeros((all_env,2))
-        dist_transf = {}
         for i in range(0, hierarchy[0]):
             if self.verbose:
                 print("")
 #           distance matrix per cluster
-            M = self.sparse_list[self.sparse_medoids[i]]
             C = np.where(cluster_indices == i)[0] 
             C_sparse = self.sparse_clusters[i]
-            N_c = len(C)
-            N_sparse = len(C_sparse)
-            dist_cluster = np.empty([N_c, N_sparse])
-            for j in range(0, N_c):
+            dist_cluster = np.empty([len(C), len(C_sparse)])
+            for j in range(0, len(C)):
                 if self.verbose:
-                    sys.stdout.write('\rEmbedding all data (cluster %i):%6.1f%%' % (i, float(j)*100./float(N_c)) )
+                    sys.stdout.write('\rEmbedding all data (cluster %i):%6.1f%%' % (i, float(j)*100./float(len(C))) )
                     sys.stdout.flush()
                 if C[j] in sparse_list:
                     ind_sparse = np.where(sparse_list == C[j])[0]
@@ -810,7 +813,7 @@ class clMDS:
                     dist_cluster[j,:] = self.dist_matrix[ind_sparse, C_sparse]  
                     continue
                 ind = np.where(non_sparse_list == C[j])[0]
-                for k in range(0, N_sparse):
+                for k in range(0, len(C_sparse)):
                     ind_sparse = C_sparse[k]
                     prod = np.dot(self.descriptor[ind], sparse_descriptor[ind_sparse])**self.zeta
                     if prod < 1.:
@@ -818,26 +821,43 @@ class clMDS:
                     else:
                         dist_cluster[j][k] = 0.          
 
-            dist_sparse_cluster = self.dist_matrix[np.ix_(C_sparse, C_sparse)]
-            dist_medoid = self.dist_matrix[self.sparse_medoids[i], C_sparse]
+#           Transformation matrix T from distance space to 2D ( X·T = Y)
+            dist_sparse = self.dist_matrix[np.ix_(C_sparse, C_sparse)]
             local_mds_sparse = self.local_sparse_coordinates[C_sparse,:]
-            local_mds_medoid = self.local_sparse_coordinates[self.sparse_medoids[i],:]
-            global_mds_medoid = self.sparse_coordinates[self.sparse_medoids[i], :] 
-#           transformation matrix T from distance space to 2D ( X·T = Y)
-            X_anchor = dist_sparse_cluster
-            Y_anchor = local_mds_sparse
-            T = np.linalg.lstsq(X_anchor, Y_anchor, rcond=None)[0]
-            dist_transf[i] = T
-            local_coordinates[C] = np.dot(dist_cluster - dist_medoid, T)
-#           Obtain the coordinates, considering previous linear transformations
-            T0 = self.linear_transformation[0][i]
-            transf_coordinates[C] = np.dot(local_coordinates[C], T0)
-            for level in range(1, len(hierarchy)-1):
-                cluster_ind = self.sparse_int_cluster_indices[level][C_sparse][0]
-                T1 = self.linear_transformation[level][cluster_ind]
-                transf_coordinates[C] = np.dot(transf_coordinates[C], T1)
-            local_coordinates[C] = local_coordinates[C] + local_mds_medoid
-            transf_coordinates[C] = transf_coordinates[C] + global_mds_medoid
+            T = np.linalg.lstsq(dist_sparse, local_mds_sparse, rcond=None)[0]
+            self.all_transformations[i]["dist"] = T
+            local_coordinates[C] = np.dot(dist_cluster, T)
+
+#           Transform the coordinates from local to global space 
+            ref = self.all_transformations[i][1]["anchor"]
+            if len(ref) > 1:
+                ref = ref[1]
+            local_mds_ref = self.local_sparse_coordinates[ref,:]
+            global_mds_ref = self.sparse_coordinates[ref, :]
+            transf_coordinates[C] = local_coordinates[C] - local_mds_ref
+            for level in range(1, len(hierarchy)):
+                T_2d = self.all_transformations[i][level]["transf"]
+                if isinstance(T_2d, np.ndarray):
+#                   Lineal transformation
+                    transf_coordinates[C] = np.dot(transf_coordinates[C], T_2d)         
+                elif T_2d == [0]:
+#                   Sparse cluster with 1 point (translation)
+                    continue
+                else:
+#                   Homography
+                    ref_prev, T_prev, F, T_new_inv, ref_new = T_2d
+                    if level > 1:
+#                       We need to keep track of the reference anchor point in each step
+                        transf_coordinates[C] = transf_coordinates[C] - ref_prev
+                    X_prev = np.dot(transf_coordinates[C], T_prev)
+                    X_prev_homog = np.concatenate((X_prev, np.ones((len(X_prev),1))), axis=1)
+                    X_new_homog =  np.dot(X_prev_homog, F)
+                    X_new = X_new_homog/X_new_homog[:,-1][:,None]
+                    transf_coordinates[C] = np.dot(X_new[:,:2], T_new_inv)
+                    if hierarchy[level] > 1:
+#                       We need to keep track of the reference anchor point in each step
+                        transf_coordinates[C] = transf_coordinates[C] + ref_new
+            transf_coordinates[C] = transf_coordinates[C] + global_mds_ref
             if self.verbose:
                 sys.stdout.write('\rEmbedding all data (cluster %i):%6.1f%%' % (i, 100.) )
                 sys.stdout.flush()
@@ -845,7 +865,6 @@ class clMDS:
                                            
         self.sparse_list = list(sparse_list) 
         self.descriptor = sparse_descriptor
-        self.distance_transformation = dist_transf 
         self.all_local_coordinates = local_coordinates
 
         self.all_cluster_indices = cluster_indices
