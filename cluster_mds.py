@@ -530,7 +530,7 @@ class clMDS:
                 sys.stdout.write( '\rChecking convexity:%6.1f%%' % (float(i)*100./float(len(clusters)))  )
                 sys.stdout.flush()
             N_anchor[i+1] = N_anchor[i] + len(ind_anchor[i])
-            if len(prev_clusters[i]) == len(ind_anchor[i]):
+            if len(prev_clusters[i]) <= 3:
                 final_vertices.append(np.arange(0, len(prev_clusters[i]), 1))
                 no_pathologies += 1
                 continue
@@ -669,7 +669,7 @@ class clMDS:
 #                   Transform and translate each cluster to the origin of its transf. matrix T
                     product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[1,:], T)
                     self.sparse_coordinates[prev_clusters[i], :] = product + X_new[1,:]
-#           CASE 2: cluster with 4 non-pathological anchor points (homography transf.)
+#           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
             elif len(self.order_anchor[i]) == 4:
                 axis = np.array([[1,0],[0,0],[0,1]])     
                 T_prev = np.linalg.lstsq(diff_X_prev[:3,:], axis, rcond=None)[0]
@@ -733,7 +733,6 @@ class clMDS:
                         I[level][cl].append( i )
                     else:
                         temp = self.all_transformations[i][level][info]
-                        print(type(temp))
                         if np.array_equal(temp, np.eye(2)):
                             I[level][cl].append(temp)
                             continue
