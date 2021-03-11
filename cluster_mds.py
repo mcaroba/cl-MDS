@@ -426,9 +426,14 @@ class clMDS:
                     sys.stdout.write( '\rObtaining anchor points:%6.1f%%' 
                                       % (float(i)*100./float(hierarchy[level-1])) )
                     sys.stdout.flush()
-                if len(C_prev[i]) <= n_anchor:
+                if len(C_prev[i]) <= 3:
                     mds_A.append( mds_clusters[C_prev[i],:] )
                     ind_A.append( C_prev[i] )
+                elif len(C_prev[i]) == 4:
+                    mds = mds_clusters[C_prev[i],:]
+                    h = ConvexHull(mds)
+                    mds_A.append( mds[h.vertices] )
+                    ind_A.append( C_prev[i][h.vertices] )
                 else:
 #                   Exclude the medoid as a possible anchor point
                     C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
@@ -440,11 +445,11 @@ class clMDS:
 #                   MDS and indexes of anchor points in previous level
                     mds = anchor_points( n_anchor, mds_clusters[C_prev_nomed,:], method=method_anchor, 
                                          criterion=criterion_anchor )
-                    indexes = [np.where(mds_clusters == mds[j])[0][0] for j in range(0, len(mds))]
+                    indexes = np.array([np.where(mds_clusters == mds[j])[0][0] for j in range(0, len(mds))])
 #                   Order of the anchor points on the previous level
-                    h = ConvexHull(mds_clusters[indexes])
+                    h = ConvexHull(mds)
                     mds_A.append( mds[h.vertices] )
-                    ind_A.append( np.array(indexes)[h.vertices] )
+                    ind_A.append( indexes[h.vertices] )
             if self.verbose:
                 sys.stdout.write('\rObtaining anchor points:%6.1f%%' % 100. )
                 sys.stdout.flush()
