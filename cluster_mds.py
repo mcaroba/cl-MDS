@@ -186,7 +186,7 @@ class clMDS:
                                            + at_ss + '} atom_sigma_t_scaling={' + at_ss + '} radial_enhancement=1 \
                                            amplitude_scaling={' + amplitude + '} basis="poly3gauss" \
                                            scaling_mode="polynomial" species_Z={' + species_string + '} \
-                                           n_species=' + str(n_Z) + ' central_index=' + str(i) + \
+                                           n_species=' + str(n_Z) + ' central_index=' + str(i+1) + \
                                            ' central_weight={' + central_w + '}' 
 #                        if self.average_kernel:
 #                            quippy_string[z] = quippy_string[z] + " average=T" 
@@ -268,7 +268,7 @@ class clMDS:
             elif descriptor == "quippy_soap_turbo":
                 d = {z: Descriptor(quippy_string[z]) for z in species_set}
             n = 0
-            descriptor = []
+            descriptor_list = []
             config_type_list = []
             if self.verbose:
                 print("")
@@ -293,10 +293,10 @@ class clMDS:
                     qs = d.calc_descriptor(a)
                     for q in qs:
                         if self.sparsify is None:
-                            descriptor.append(q)
+                            descriptor_list.append(q)
                         else:
                             if n in sparse_list:
-                                descriptor.append(q)   
+                                descriptor_list.append(q)   
                         n += 1  
                 elif descriptor == "quippy_soap_turbo":   
                     q = {}
@@ -310,18 +310,17 @@ class clMDS:
                     for at in ats:
                         symb = at.symbol
                         if self.sparsify is None:
-                            descriptor.append(q[symb][N[symb]])
+                            descriptor_list.append(q[symb][N[symb]])
                         else:
                             if n in sparse_list:
-                                descriptor.append(q[symb][N[symb]])
+                                descriptor_list.append(q[symb][N[symb]])
                         N[symb] += 1 
                         n += 1
-                    print(N)
-               
-            descriptor = np.array(descriptor)
+                
+            descriptor_list = np.array(descriptor_list)
             if not self.compute_non_sparse and (self.sparsify == "cur"):
-                self.sparse_list = list(set(cur.cur_decomposition(descriptor, self.n_sparse)[-1]))
-                descriptor = descriptor[self.sparse_list,:]
+                self.sparse_list = list(set(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1]))
+                descriptor = descriptor_list[self.sparse_list,:]
             if self.verbose:
                 sys.stdout.write('\rComputing descriptors:%6.1f%%' % 100. )
                 sys.stdout.flush()
@@ -331,8 +330,8 @@ class clMDS:
                 self.config_type_list = np.concatenate([c for c in config_type_list])
             else:
                 self.config_type_list = np.array(config_type_list)
-            self.n_env = len(descriptor)
-            self.descriptor = descriptor
+            self.n_env = len(descriptor_list)
+            self.descriptor = descriptor_list
             self.has_descriptor = True
         else:
             raise Exception("You must choose among the implemented descriptors: ", implemented_descriptors)
