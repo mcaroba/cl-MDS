@@ -54,7 +54,7 @@ class clMDS:
                  sparsify=None, n_sparse=None, average_kernel=False, cutoff=None, verbose=True):
 #       This is the list of implemented atomic descriptors (it typically requires external
 #       programs)
-        implemented_descriptors = ["quippy_soap"]
+        implemented_descriptors = ["quippy_soap","quippy_soap_turbo"]
         sparse_options = ["random", "cur"]
         self.verbose = verbose
         self.sparsify = sparsify
@@ -125,64 +125,116 @@ class clMDS:
 
         descriptor = self.descriptor_type
         descriptor_string = self.descriptor_string
-        if descriptor == "quippy_soap":
+        if descriptor in ["quippy_soap", "quippy_soap_turbo"]:
             from ase.data import atomic_numbers
             from quippy.descriptors import Descriptor
             from quippy.convert import ase_to_quip
             self.zeta = 4
+            species_list = []
+            for ats in self.atoms:
+                for at in ats:
+                    species_list.append(at.symbol)
+            self.species_list = species_list
+            species_set = list(set(species_list))
 #           This uses some default SOAP parameters
             if descriptor_string is None:
-                species_list = []
-                for ats in self.atoms:
-                    for at in ats:
-                        if at.symbol not in species_list:
-                            species_list.append(at.symbol)
                 species_string = ""
-                for species in species_list:
+                for species in species_set:
                     species_string += " " + str(atomic_numbers[species])
-                n_Z = len(species_list)
-                if self.cutoff == None:
-                    cutoff = 3.0
-                    self.cutoff = cutoff
-                else:
-                    cutoff = self.cutoff
-                quippy_string = "soap n_max=8 l_max=8 cutoff=" + str(cutoff) + " atom_sigma=0.5 Z={" + \
-                                species_string + "} species_Z={" + species_string + "} n_Z=" + str(n_Z) + \
-                                " n_species=" + str(n_Z) 
-                if self.average_kernel:
-                    quippy_string = quippy_string + " average=T" 
-#           This uses a user-defined SOAP
+                n_Z = len(species_set)
+                if descriptor == "quippy_soap":
+                    if self.cutoff == None:
+                        cutoff = 3.0
+                        self.cutoff = cutoff
+                    else:
+                        cutoff = self.cutoff
+                    quippy_string = "soap n_max=8 l_max=8 cutoff=" + str(cutoff) + " atom_sigma=0.5 Z={" + \
+                                    species_string + "} species_Z={" + species_string + "} n_Z=" +  \
+                                    str(n_Z) + " n_species=" + str(n_Z) 
+                    if self.average_kernel:
+                        quippy_string = quippy_string + " average=T" 
+                elif descriptor == "quippy_soap_turbo":
+                    if not self.cutoff:
+                        rcut_hard = 5.0
+                        rcut_soft = rcut_hard - 0.5
+                        self.cutoff = [rcut_soft, rcut_hard]*n_Z
+                        cutoff = self.cutoff
+                    elif len(self.cutoff) == 2:
+                        cutoff = sorted(self.cutoff)*n_Z
+                        rcut_soft = self.cutoff[0]
+                        rcut_hard = self.cutoff[1]
+                    elif len(self.cutoff) == 2*n_Z:
+                        cutoff = self.cutoff
+                    else:
+                        raise Exception("soap_turbo uses two cutoff (soft and hard cutoff) per specie. \
+                                         Please give a list with 2 or 2*n_species values.")
+                    alpha = ""; at_s = ""; at_ss = ""
+                    amplitude = ""; central_w = ""
+                    for i in range(0, n_Z):
+                        alpha += " 8"
+                        at_s += " 0.2"
+                        at_ss += " 0.1"
+                        amplitude += " 1."
+                        central_w += " 1."
+                    quippy_string = {}
+                    for i, z in enumerate(species_set):
+                        rcut_soft = min(cutoff[2*i:2*(i+1)])
+                        rcut_hard = max(cutoff[2*i:2*(i+1)])
+                        quippy_string[z] = 'soap_turbo alpha_max={' + alpha + '} l_max=8 rcut_soft=' + \
+                                           str(rcut_soft) + ' rcut_hard=' + str(rcut_hard) + ' atom_sigma_r={' \
+                                           + at_s + '} atom_sigma_t={' + at_s + '} atom_sigma_r_scaling={' \
+                                           + at_ss + '} atom_sigma_t_scaling={' + at_ss + '} radial_enhancement=1 \
+                                           amplitude_scaling={' + amplitude + '} basis="poly3gauss" \
+                                           scaling_mode="polynomial" species_Z={' + species_string + '} \
+                                           n_species=' + str(n_Z) + ' central_index=' + str(i) + \
+                                           ' central_weight={' + central_w + '}' 
+#                        if self.average_kernel:
+#                            quippy_string[z] = quippy_string[z] + " average=T" 
+
+#           This uses a user-defined SOAP/SOAP_TURBO
             else:
                 quippy_string = self.descriptor_string
-                if self.cutoff is not None:
-                    cutoff = self.cutoff
-#               Cumbersome code to get the cutoff from a string:
-                else:
-                    a = quippy_string
-                    for i in range(0, len(a.split())):
-                        b = a.split()[i]
-                        if b[0:6] != "cutoff":
-                            continue
-                        if len(b) == 6:
-                            c = a.split()[i+1]
-                            if len(c) == 1:
-                                cutoff = float(a.split()[i+2])
-                                break
-                            else:
-                                cutoff = float(c[1:])
-                                break
-                        elif len(b) == 7:
-                            c = a.split()[i+1]
-                            cutoff = float(c)
-                            break
-                        else:
-                            cutoff = float(b[7:])
-                            break
+                if descriptor == "quippy_soap":
+#                   Check string
+                    n_Z = get_info_string(quippy_string, label="n_Z", type_label=int)
+                    if n_Z != len(species_set):
+                        raise Exception("Your database has a different amount of species than the \
+                                         given on the descriptor string.")
+#                   Take cutoff and average kernel from descriptor string
+                    cutoff = get_info_string(quippy_string, label="cutoff", type_label=float)
+                    average = get_info_string(quippy_string, label="average")     
                     self.cutoff = cutoff
-#               Check if both quippy_string and self.average_kernel have equal True/False values              <-- comment
-#               (otherwise there could be undetected errors, the same can happen with the cutoff)
+                    self.average_kernel = average
+                elif descriptor == "quippy_soap_turbo":
+#                   Check string
+                    n_Z = get_info_string(quippy_string[0], label="n_species", type_label=int)
+                    if n_Z != len(species_set):
+                        raise Exception("Your database has a different amount of species than the \
+                                         given on the descriptor string.")
+                    elif n_Z == 1:
+                        if isinstance(quippy_string, str):
+                            quippy_string = {species_set[0]: quippy_string}
+                    else:
+                        if isinstance(quippy_string, str) or len(quippy_string) != n_Z:
+                            raise Exception("You need to give as many descriptor strings as n_species for ",
+                                             descriptor)
+                        elif not isinstance(quippy_string, dict):
+#                           Check this part                                                                     <-- comment
+                            indices = [get_info_string(quippy_string[i], label="central_index", type_label=int)-1
+                                       for i in range(0, n_Z)]
+                            quippy_string = {species_set[i]: quippy_string[indices[i]] for i in range(0, n_Z)}
+#                   Take cutoff from descriptor string
+                    cutoff = []
+                    for i in range(0, len(quippy_string)):
+                        rsoft = get_info_string(quippy_string[i], label="rcut_soft", type_label=float)
+                        rhard = get_info_string(quippy_string[i], label="rcut_hard", type_label=float)
+                        if not rsoft or not rhard:
+                            raise Exception("soap_turbo uses two cutoff (soft and hard cutoff) per specie, \
+                                             please include both in the descriptor string.")
+                        cutoff.append(rsoft, rhard) 
+                    self.cutoff = cutoff
 
-            d = Descriptor(quippy_string)
+#           Get the number of environments 
             if self.average_kernel:
                 n_env = len(self.atoms)
             else:
@@ -210,9 +262,13 @@ class clMDS:
 #               Added to avoid possible crushes in other methods
                 self.sparse_list = list(range(n_env))
 
+#           Descriptors
+            if descriptor == "quippy_soap":
+                d = Descriptor(quippy_string)
+            elif descriptor == "quippy_soap_turbo":
+                d = {z: Descriptor(quippy_string[z]) for z in species_set}
             n = 0
             descriptor = []
-            species_list = []
             config_type_list = []
             if self.verbose:
                 print("")
@@ -220,7 +276,6 @@ class clMDS:
                 if self.verbose:
                     sys.stdout.write('\rComputing descriptors:%6.1f%%' % (float(n)*100./float(n_env)) )
                     sys.stdout.flush()
-                species_list.append(ats.symbols)
                 if not self.average_kernel:
                     if "config_type" in ats.info:
                         config_type_list.append([ats.info["config_type"]]*len(ats))
@@ -231,17 +286,38 @@ class clMDS:
                         config_type_list.append(ats.info["config_type"])
                     else:
                         config_type_list.append(None)
-                a = ase_to_quip(ats)
-                a.set_cutoff(cutoff)
-                a.calc_connect()
-                qs = d.calc_descriptor(a)
-                for q in qs:
-                    if self.sparsify is None:
-                        descriptor.append(q)
-                    else:
-                        if n in sparse_list:
-                            descriptor.append(q)                       
-                    n += 1
+                if descriptor == "quippy_soap":                
+                    a = ase_to_quip(ats)
+                    a.set_cutoff(cutoff)
+                    a.calc_connect()
+                    qs = d.calc_descriptor(a)
+                    for q in qs:
+                        if self.sparsify is None:
+                            descriptor.append(q)
+                        else:
+                            if n in sparse_list:
+                                descriptor.append(q)   
+                        n += 1  
+                elif descriptor == "quippy_soap_turbo":   
+                    q = {}
+                    N = {z: 0 for z in species_set}
+                    for z in species_set:   
+                        rcut_hard = max(cutoff[2*i:2*(i+1)])     
+                        a = ase_to_quip(ats)
+                        a.set_cutoff(rcut_hard)    
+                        a.calc_connect()
+                        q[z] = d[z].calc_descriptor(a)   
+                    for at in ats:
+                        symb = at.symbol
+                        if self.sparsify is None:
+                            descriptor.append(q[symb][N[symb]])
+                        else:
+                            if n in sparse_list:
+                                descriptor.append(q[symb][N[symb]])
+                        N[symb] += 1 
+                        n += 1
+                    print(N)
+               
             descriptor = np.array(descriptor)
             if not self.compute_non_sparse and (self.sparsify == "cur"):
                 self.sparse_list = list(set(cur.cur_decomposition(descriptor, self.n_sparse)[-1]))
@@ -256,11 +332,59 @@ class clMDS:
             else:
                 self.config_type_list = np.array(config_type_list)
             self.n_env = len(descriptor)
-            self.species_list = np.concatenate([z for z in species_list])
             self.descriptor = descriptor
             self.has_descriptor = True
         else:
             raise Exception("You must choose among the implemented descriptors: ", implemented_descriptors)
+
+
+#   Cumbersome code to get a specific label (only those with a single value) from a descriptor string
+    def get_info_string(self, quippy_string, label, type_label=str):
+        list_labels = {"quippy_soap": ["n_max", "l_max","cutoff", "atom_sigma", "n_Z", "n_species", "average"], 
+                       "quippy_soap_turbo": ["alpha_max","l_max","rcut_hard","rcut_soft", "radial_enhancement",
+                                             "n_species", "central_index", "central_weight"] }
+        list_descriptors = list(list_labels.keys())
+        if not self.descriptor_type in list_descriptors:
+            raise Exception("The code can't get any label from a string of the given descriptor_type (yet). \
+                             Available options are: ", list_descriptors)
+#       Check if it is label with a single value (not arrays) 
+        if not label in list_labels[self.descriptor_type]:
+            raise Exception("This method can't extract the chosen label, the available ones for %s are:" 
+                             % self.descriptor_type,  list_labels[self.descriptor_type])
+        a = quippy_string.split()
+        if a[0] != self.descriptor_type[7:]:
+            raise Exception("The descriptor string doesn't correspond to the descriptor type, check this.")
+        N = len(label)
+        for i in range(0, len(a)):
+            b = a[i]
+            if b[0:N] != label:
+                continue
+            if len(b) == N:
+                c = a[i+1]
+                if len(c) == 1:
+                    param = a[i+2]
+                    break
+                else:
+                    param = c[1:]
+                    break
+            elif len(b) == N+1:
+                c = a[i+1]
+                param = c
+                break
+            else:
+                param = b[N+1:]
+                break
+        else:
+            param = False
+
+        if param:
+            if type_param == float:
+                param = float(param)
+            elif type_param == int:
+                param = int(param)
+
+        return param
+
 
 
 #   This method takes care of building a distance matrix:
@@ -301,6 +425,58 @@ class clMDS:
             raise Exception("No descriptor defined: nothing to do!")
 
 
+#   Method that prints a silhouette analysis for a given dataset, range of number of clusters 
+#   and k-medoids parameters (no plot, only some relevant values)                                     
+#   Improve how are shown the results                                                                     <-- comment 
+    def silhouette_analysis(self, n_cluster_min=2, n_cluster_max=10, specific_Ms="isolated",
+                            specific_n_iso=None, n_ranking=15):
+        if not self.has_dist_matrix:
+            self.build_dist_matrix()
+
+        from sklearn.metrics import silhouette_samples, silhouette_score
+
+        print(" N_cl  n_iso   I_rel   average silhouette   min/max. silhouette   cluster  size cluster ")
+        print("-----------------------------------------------------------------------------------------")
+        N_cl = np.arange(n_cluster_min, n_cluster_max+1, 1)
+        if specific_Ms=="random":
+            param_iso = [0]
+        elif isinstance(specific_n_iso, int):
+            param_iso = [specific_n_iso]
+        elif isinstance(specific_n_iso, (list, np.ndarray)):
+            param_iso = specific_n_iso
+        else:
+            param_iso = list(range(1, n_cluster_max+1))
+
+        C_ind = np.empty( len(self.dist_matrix), dtype=int )
+        I_rel = 10*np.ones( (len(N_cl), len(param_iso)) )
+        average_sil = -10*np.ones( (len(N_cl), len(param_iso)) )
+        for n in N_cl:
+            ind = n - n_cluster_min
+            for m, param in enumerate(param_iso):
+                if param > n:
+                    break
+                M, C, I_rel[ind,m] = optim_kmedoids( self.dist_matrix, n, incoherence="rel", 
+                                             init_Ms=specific_Ms, n_iso=param)
+                for i in range(0, n):
+                    C_ind[C[i]] = i
+                average_sil[ind,m] = silhouette_score(self.dist_matrix, C_ind, metric="precomputed")
+                sil_values = silhouette_samples(self.dist_matrix, C_ind, metric="precomputed")
+                print(" %2i     %2i         %2.6f      %2.6f" % (n, param, I_rel[ind,m], average_sil[ind,m]))
+                for i in range(0, n):
+                    sil_cluster = sil_values[C[i]]
+                    print("                               %2.6f        % 2.6f/% 2.6f     %4i        %5i "  
+                          % (np.mean(sil_cluster), np.min(sil_cluster), np.max(sil_cluster), i, len(C[i])))
+        print("-------------------------------------------------------------------------------------------")
+        print("n.         silhuoette             incoherence  ")
+        print("        N_cl  n_iso    s        N_cl  n_iso    I")
+        score_sil = np.argsort( average_sil.flatten() )
+        score_I = np.argsort( I_rel.flatten() )
+        for i in range(1, n_ranking+1):
+            row_sil, row_I = score_sil[-i]//len(param_iso), score_I[i-1]//len(param_iso)
+            col_sil, col_I = score_sil[-i]%len(param_iso), score_I[i-1]%len(param_iso)
+            print("%2i       %2i    %2i    %2.3f      %2i    %2i    %2.3f" % (i, N_cl[row_sil], param_iso[col_sil], 
+                   average_sil[row_sil, col_sil], N_cl[row_I], param_iso[col_I], I_rel[row_I, col_I]))
+
 
 #   This method clusters the data and produces the embedded 2-dimensional coordinates
 #   Make sure these are sensible defaults!!!!!!                                                              <-- comment
@@ -322,14 +498,13 @@ class clMDS:
         * Clustering (iter_med, tmax, init_medoids, n_iso_med)
         Check kmedoids for further information.
 
-        * Embedding (Initial clusters: n_init_cluster, max_iter_cluster, n_jobs_cluster, verbose_cluster;
-                     Anchor points: n_init_mds_anchor, max_iter_anchor, n_jobs_anchor, verbose_anchor)
+        * Embedding (n_init_*, max_iter_*, n_jobs_*, verbose_*; *=(initial) clusters, anchor (points))
         Check sklearn.manifold.MDS for additional information
 
         * Anchor points (n_anchor, criterion_anchor, precision_qhull)
         This method only supports n_anchor=3,4 (the anchor point selection process and later
         transformations won't make sense with other values).
-        Check cluster_mds (anchor_points()) and scipy.spatial.ConvexHull for further information.
+        Check anchor_points (from cluster_mds) and scipy.spatial.ConvexHull for further information.
 
         """
         if isinstance(hierarchy, list):
@@ -354,7 +529,7 @@ class clMDS:
         self.hierarchy = hierarchy
 
 #       Finest clustering (initial hierarchy level) 
-        ind_medoids, ind_clusters = optim_kmedoids( self.dist_matrix, n_clusters, incoherence="rel",
+        ind_medoids, ind_clusters, I = optim_kmedoids( self.dist_matrix, n_clusters, incoherence="rel",
                                                     n_iter=iter_med, tmax=tmax, init_Ms=init_medoids,
                                                     n_iso=n_iso_med, verbose=self.verbose )
         dist_clusters = [self.dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
@@ -401,7 +576,7 @@ class clMDS:
 #               Assign the clusters of previous level to the current ones
                 D = self.dist_matrix[np.ix_(M_prev, M_prev)]
                 M, C = optim_kmedoids( D, hierarchy[level], incoherence="rel", n_iter=500, init_Ms="isolated",
-                                       n_iso=hierarchy[level], verbose=self.verbose )
+                                       n_iso=hierarchy[level], verbose=self.verbose )[:2]
 #               Obtain a dictionary with all the indexes of each new cluster
                 C_new = { newcl: np.concatenate( [C_prev[i] for i in C[newcl]] ) 
                                                             for newcl in range(0, hierarchy[level]) }
@@ -1073,7 +1248,7 @@ def optim_kmedoids(D, n_clusters, incoherence="rel", n_iter=100,  tmax=100,
         sys.stdout.flush()
         print("")
 
-    return M, C
+    return M, C, I
 
 
 # Given a dataset, this method choose the N points corresponding to the N vertices of the polygon that fulfils  
