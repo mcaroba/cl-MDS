@@ -118,6 +118,55 @@ class clMDS:
 #               Implement the "optimized sparse set" as a sparsify option                                           <--- comment  
 
 
+
+#   Cumbersome code to get a specific label (only those with a single value) from a descriptor string
+    def get_info_string(self, quippy_string, label, type_label=str):
+        list_labels = {"quippy_soap": ["n_max", "l_max","cutoff", "atom_sigma", "n_Z", "n_species", "average"], 
+                       "quippy_soap_turbo": ["alpha_max","l_max","rcut_hard","rcut_soft", "radial_enhancement",
+                                             "n_species", "central_index", "central_weight"] }
+        list_descriptors = list(list_labels.keys())
+        if not self.descriptor_type in list_descriptors:
+            raise Exception("The code can't get any label from a string of the given descriptor_type (yet). \
+                             Available options are: ", list_descriptors)
+#       Check if it is label with a single value (not arrays) 
+        if not label in list_labels[self.descriptor_type]:
+            raise Exception("This method can't extract the chosen label, the available ones for %s are:" 
+                             % self.descriptor_type,  list_labels[self.descriptor_type])
+        a = quippy_string.split()
+        if a[0] != self.descriptor_type[7:]:
+            raise Exception("The descriptor string doesn't correspond to the descriptor type, check this.")
+        N = len(label)
+        for i in range(0, len(a)):
+            b = a[i]
+            if b[0:N] != label:
+                continue
+            if len(b) == N:
+                c = a[i+1]
+                if len(c) == 1:
+                    param = a[i+2]
+                    break
+                else:
+                    param = c[1:]
+                    break
+            elif len(b) == N+1:
+                c = a[i+1]
+                param = c
+                break
+            else:
+                param = b[N+1:]
+                break
+        else:
+            param = False
+
+        if param:
+            if type_param == float:
+                param = float(param)
+            elif type_param == int:
+                param = int(param)
+
+        return param
+
+
 #   This method takes care of adding a descriptor to the clMDS class:
     def build_descriptor(self):
         if not hasattr(self, 'descriptor_type'):
@@ -335,54 +384,6 @@ class clMDS:
             self.has_descriptor = True
         else:
             raise Exception("You must choose among the implemented descriptors: ", implemented_descriptors)
-
-
-#   Cumbersome code to get a specific label (only those with a single value) from a descriptor string
-    def get_info_string(self, quippy_string, label, type_label=str):
-        list_labels = {"quippy_soap": ["n_max", "l_max","cutoff", "atom_sigma", "n_Z", "n_species", "average"], 
-                       "quippy_soap_turbo": ["alpha_max","l_max","rcut_hard","rcut_soft", "radial_enhancement",
-                                             "n_species", "central_index", "central_weight"] }
-        list_descriptors = list(list_labels.keys())
-        if not self.descriptor_type in list_descriptors:
-            raise Exception("The code can't get any label from a string of the given descriptor_type (yet). \
-                             Available options are: ", list_descriptors)
-#       Check if it is label with a single value (not arrays) 
-        if not label in list_labels[self.descriptor_type]:
-            raise Exception("This method can't extract the chosen label, the available ones for %s are:" 
-                             % self.descriptor_type,  list_labels[self.descriptor_type])
-        a = quippy_string.split()
-        if a[0] != self.descriptor_type[7:]:
-            raise Exception("The descriptor string doesn't correspond to the descriptor type, check this.")
-        N = len(label)
-        for i in range(0, len(a)):
-            b = a[i]
-            if b[0:N] != label:
-                continue
-            if len(b) == N:
-                c = a[i+1]
-                if len(c) == 1:
-                    param = a[i+2]
-                    break
-                else:
-                    param = c[1:]
-                    break
-            elif len(b) == N+1:
-                c = a[i+1]
-                param = c
-                break
-            else:
-                param = b[N+1:]
-                break
-        else:
-            param = False
-
-        if param:
-            if type_param == float:
-                param = float(param)
-            elif type_param == int:
-                param = int(param)
-
-        return param
 
 
 
