@@ -100,7 +100,7 @@ class clMDS:
 #       Check if the user wants to use sparsification       
         if sparsify is not None:
             if isinstance(sparsify, (list, np.ndarray)):
-                sparsify = list(set(sparsify)) # Avoid repeated entries
+                sparsify = list(set(sparsify)) # Avoid repeated entries                                     <--- check this
                 self.n_sparse = len(sparsify)
                 self.sparsify = sparsify
             elif sparsify not in sparse_options:
@@ -208,7 +208,7 @@ class clMDS:
                     self.average_kernel = average
                 elif descriptor == "quippy_soap_turbo":
 #                   Check string
-                    n_Z = self.get_info_string(quippy_string[0], label="n_species", type_label=int)
+                    n_Z = self.get_info_string(quippy_string[species_set[0]], label="n_species", type_label=int)
                     if n_Z != len(species_set):
                         raise Exception("Your database has a different amount of species than the \
                                          given on the descriptor string.")
@@ -220,19 +220,20 @@ class clMDS:
                             raise Exception("You need to give as many descriptor strings as n_species for ",
                                              descriptor)
                         elif not isinstance(quippy_string, dict):
-#                           Check this part                                                                     <-- comment
+#                           Check this part (I assume the string always has ordered Z)                               <-- comment
                             indices = [self.get_info_string(quippy_string[i], label="central_index", type_label=int)-1
                                        for i in range(0, n_Z)]
                             quippy_string = {species_set[i]: quippy_string[indices[i]] for i in range(0, n_Z)}
 #                   Take cutoff from descriptor string
                     cutoff = []
-                    for i in range(0, len(quippy_string)):
-                        rsoft = self.get_info_string(quippy_string[i], label="rcut_soft", type_label=float)
-                        rhard = self.get_info_string(quippy_string[i], label="rcut_hard", type_label=float)
+                    for z in species_set:
+                        rsoft = self.get_info_string(quippy_string[z], label="rcut_soft", type_label=float)
+                        rhard = self.get_info_string(quippy_string[z], label="rcut_hard", type_label=float)
                         if not rsoft or not rhard:
                             raise Exception("soap_turbo uses two cutoff (soft and hard cutoff) per specie, \
                                              please include both in the descriptor string.")
-                        cutoff.append(rsoft, rhard) 
+                        cutoff.append(rsoft)
+                        cutoff.append(rhard) 
                     self.cutoff = cutoff
 
 #           Get the number of environments 
@@ -287,6 +288,11 @@ class clMDS:
                         config_type_list.append(ats.info["config_type"])
                     else:
                         config_type_list.append(None)
+                if self.sparsify: 
+                    if self.sparsify=="random" or isinstance(self.sparsify, (list, np.ndarray)):
+                        in_sparse = (sparse_list >= n) & (sparse_list < n + len(ats))
+                        if not in_sparse:
+                            continue
                 if descriptor == "quippy_soap":                
                     a = ase_to_quip(ats)
                     a.set_cutoff(cutoff)
@@ -302,7 +308,7 @@ class clMDS:
                 elif descriptor == "quippy_soap_turbo":   
                     q = {}
                     N = {z: 0 for z in species_set}
-                    for z in species_set:   
+                    for i, z in enumerate(species_set):   
                         rcut_hard = max(cutoff[2*i:2*(i+1)])     
                         a = ase_to_quip(ats)
                         a.set_cutoff(rcut_hard)    
@@ -378,9 +384,9 @@ class clMDS:
             param = False
 
         if param:
-            if type_param == float:
+            if type_label == float:
                 param = float(param)
-            elif type_param == int:
+            elif type_label == int:
                 param = int(param)
 
         return param
