@@ -247,17 +247,17 @@ class clMDS:
                         if len(self.sparsify) > n_env:
                             raise Exception("The sparse set can't be larger than the complete dataset")
                         else: 
-                            sparse_list = self.sparsify
+                            sparse_list = np.array(self.sparsify, dtype=int)
                             self.sparse_list = sparse_list
                     elif self.sparsify == "random":
-                        sparse_list = list(range(n_env))
+                        sparse_list = np.array(range(n_env), dtype=int)
                         np.random.shuffle(sparse_list)
                         sparse_list = sparse_list[0:self.n_sparse]
                         self.sparse_list = sorted(sparse_list)
                     elif self.sparsify == "cur":
                         sparse_list = list(range(n_env))
                 else:
-                    sparse_list = [i for i in range(0, n_env) if i not in self.sparse_list]
+                    sparse_list = np.array([i for i in range(0, n_env) if i not in self.sparse_list], dtype=int)
                     self.sparse_list = sparse_list
                     self.all_env = n_env
             else:
@@ -291,7 +291,8 @@ class clMDS:
                 if self.sparsify: 
                     if self.sparsify=="random" or isinstance(self.sparsify, (list, np.ndarray)):
                         in_sparse = (sparse_list >= n) & (sparse_list < n + len(ats))
-                        if not in_sparse:
+                        if not (in_sparse).any():
+                            n += len(ats)
                             continue
                 if descriptor == "quippy_soap":                
                     a = ase_to_quip(ats)
