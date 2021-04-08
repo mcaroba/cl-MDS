@@ -328,7 +328,7 @@ class clMDS:
             descriptor_list = np.array(descriptor_list)
             if not self.compute_non_sparse and (self.sparsify == "cur"):
                 self.sparse_list = list(set(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1]))
-                descriptor = descriptor_list[self.sparse_list,:]
+                descriptor_list = descriptor_list[self.sparse_list,:]
             if self.verbose:
                 sys.stdout.write('\rComputing descriptors:%6.1f%%' % 100. )
                 sys.stdout.flush()
