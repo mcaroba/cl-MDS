@@ -643,12 +643,28 @@ class clMDS:
                     print( '\rResult for new cluster %i' % newcl  )
                 temp_A = [ind_A[i] for i in C[newcl]] 
                 A = np.concatenate( temp_A ).astype('int32')
-                dist_anchor = self.dist_matrix[np.ix_(A, A)]
                 if len(A) == 1:
                     self.sparse_coordinates[A,:] = np.zeros((1,2)) # avoid sklearn RuntimeWarning   
                     self.order_anchor = [0]
                     self.transformation = [0]
                 else:
+#                   Distances with an additional weigth to capture local structures (clusters)
+                    dist_anchor = self.dist_matrix[np.ix_(A, A)]
+                    weight_med = np.eye(len(A))
+                    l=0
+                    new_ind=[]
+                    for a in temp_A:
+                        new_ind.append(np.arange(l, l+len(a), 1))
+                        l+=len(a)
+                    for i in range(0, len(temp_A)):
+                         weight_med[np.ix_(new_ind[i], new_ind[i])] = 1
+                         for j in range(i+1, len(temp_A)):
+                             med_i = M_prev[C[newcl][i]]
+                             med_j = M_prev[C[newcl][j]]
+                             prod = np.dot(self.descriptor[med_i], self.descriptor[med_j])**self.zeta
+                             weight_med[np.ix_(new_ind[i], new_ind[j])] = prod
+                             weight_med[np.ix_(new_ind[j], new_ind[i])] = prod
+                    dist_anchor = np.sqrt(1 + (dist_anchor**2 -1)*weight_med)
                     mds_anchor = embedding_h.fit_transform(dist_anchor)
 #                   Convexity check per cluster for their new MDS
                     embedding_h.set_params(n_init=1)
