@@ -339,6 +339,7 @@ class clMDS:
             else:
                 self.config_type_list = np.array(config_type_list)
             self.n_env = len(descriptor_list)
+            self.sparse_list = list(self.sparse_list)
             self.descriptor = descriptor_list
             self.has_descriptor = True
         else:
@@ -489,7 +490,7 @@ class clMDS:
     def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
                     n_anchor=4, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
-                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1e-7):
+                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1e-7, eta=0.):
         """
         Parameters:
 
@@ -648,23 +649,25 @@ class clMDS:
                     self.order_anchor = [0]
                     self.transformation = [0]
                 else:
-#                   Distances with an additional weigth to capture local structures (clusters)
                     dist_anchor = self.dist_matrix[np.ix_(A, A)]
-                    weight_med = np.eye(len(A))
-                    l=0
-                    new_ind=[]
-                    for a in temp_A:
-                        new_ind.append(np.arange(l, l+len(a), 1))
-                        l+=len(a)
-                    for i in range(0, len(temp_A)):
-                         weight_med[np.ix_(new_ind[i], new_ind[i])] = 1
-                         for j in range(i+1, len(temp_A)):
-                             med_i = M_prev[C[newcl][i]]
-                             med_j = M_prev[C[newcl][j]]
-                             prod = np.dot(self.descriptor[med_i], self.descriptor[med_j])**self.zeta
-                             weight_med[np.ix_(new_ind[i], new_ind[j])] = prod
-                             weight_med[np.ix_(new_ind[j], new_ind[i])] = prod
-                    dist_anchor = np.sqrt(1 + (dist_anchor**2 -1)*weight_med)
+                    if hasattr(self, 'descriptor_type') and eta != 0:
+#                       Distances can have an additional weigth using medoids kernel
+                        weight_med = np.eye(len(A))
+                        l=0
+                        new_ind=[]
+                        for a in temp_A:
+                            new_ind.append(np.arange(l, l+len(a), 1))
+                            l+=len(a)
+                        for i in range(0, len(temp_A)):
+                            weight_med[np.ix_(new_ind[i], new_ind[i])] = 1
+                            for j in range(i+1, len(temp_A)):
+                                med_i = M_prev[C[newcl][i]]
+                                med_j = M_prev[C[newcl][j]]
+                                prod = np.dot(self.descriptor[med_i], self.descriptor[med_j])**self.zeta
+                                weight_med[np.ix_(new_ind[i], new_ind[j])] = prod
+                                weight_med[np.ix_(new_ind[j], new_ind[i])] = prod
+                        dist_anchor = np.sqrt(1 + (dist_anchor**2 -1)*weight_med**eta)
+
                     mds_anchor = embedding_h.fit_transform(dist_anchor)
 #                   Convexity check per cluster for their new MDS
                     embedding_h.set_params(n_init=1)
