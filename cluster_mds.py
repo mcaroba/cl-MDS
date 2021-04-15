@@ -540,7 +540,7 @@ class clMDS:
                                                     n_iter=iter_med, tmax=tmax, init_Ms=init_medoids,
                                                     n_iso=n_iso_med, verbose=self.verbose )
         dist_clusters = [self.dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
-                         for i in range(0, n_clusters)]
+                         for i in range(0, n_clusters)]      
 #       MDS calculation minimizing the stress
         embedding = manifold.MDS( n_components=2, dissimilarity="precomputed",
                                   n_init=n_init_mds_cluster, max_iter=max_iter_cluster,
@@ -561,6 +561,7 @@ class clMDS:
             sys.stdout.flush()
             print("")
         
+        self.cluster_incoherence = I
         self.local_sparse_coordinates = mds_clusters
 
 #       Hierarchy levels
@@ -669,6 +670,7 @@ class clMDS:
                         dist_anchor = np.sqrt(1 + (dist_anchor**2 -1)*weight_med**eta)
 
                     mds_anchor = embedding_h.fit_transform(dist_anchor)
+                    self.MDS_stress = embedding_h.stress_
 #                   Convexity check per cluster for their new MDS
                     embedding_h.set_params(n_init=1)
                     prev_clusters = [C_prev[i] for i in C[newcl]]
@@ -696,7 +698,7 @@ class clMDS:
 #       structures around the medoids for plotting                                                              <-- comment
         self.has_clmds = True
         self.sparse_clusters = ind_clusters
-        self.sparse_medoids = ind_medoids
+        self.sparse_medoids = ind_medoids.astype(int)
         self.all_transformations = T_hierarchy
 
         sparse_cluster_indices = np.empty(len(self.dist_matrix), dtype=int)
@@ -771,7 +773,7 @@ class clMDS:
                             perm_cluster[[0,1]] = perm_cluster[[1,0]]
                         init_embed = temp_mds
                         init_embed[N_anchor[i]:N_anchor[i+1], :] = perm_cluster
-                        new_embed = embedding.fit(dist_anchor, init=init_embed) 
+                        new_embed = embedding.fit(dist_anchor, init=init_embed)
                         temp_mds = new_embed.embedding_
                         hull = ConvexHull( temp_mds[N_anchor[i]:N_anchor[i+1], :], qhull_options=precision )
                         temp_vertices = hull.vertices
@@ -824,6 +826,7 @@ class clMDS:
                             no_pathologies = temp_pathologies
                             mds_anchor = temp_mds
                             final_vertices = new_vertices + [temp_vertices]
+                            self.MDS_stress = embedding.stress_
                         else:
 #                           We keep the previous MDS
 #                           Improve this choice (maybe triangle with maximum area in MDS local?)                 <-- comment
@@ -1073,6 +1076,7 @@ class clMDS:
 
         self.all_cluster_indices = cluster_indices
         self.all_coordinates = transf_coordinates
+
 
 
 
