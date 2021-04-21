@@ -103,6 +103,8 @@ class clMDS:
                 sparsify = list(set(sparsify)) # Avoid repeated entries                                     <--- check this
                 self.n_sparse = len(sparsify)
                 self.sparsify = sparsify
+                if self.has_dist_matrix:
+                    self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
             elif sparsify not in sparse_options:
                 raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
                                 sparse_options, " or provide a list of indexes")
@@ -248,7 +250,7 @@ class clMDS:
                             raise Exception("The sparse set can't be larger than the complete dataset")
                         else: 
                             sparse_list = np.array(self.sparsify, dtype=int)
-                            self.sparse_list = sparse_list
+                            self.sparse_list = sorted(sparse_list)
                     elif self.sparsify == "random":
                         sparse_list = np.array(range(n_env), dtype=int)
                         np.random.shuffle(sparse_list)
