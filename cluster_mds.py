@@ -976,13 +976,11 @@ class clMDS:
         hierarchy = self.hierarchy
         sparse_list = self.sparse_list
         sparse_descriptor = self.descriptor
-        print(sparse_list)
 #       Compute the descriptors of all the atoms left out of the sparse set
         if isinstance(indices, (list, np.ndarray)):
             self.sparsify = indices
             self.build_descriptor()
             assert set(indices) == set(self.sparse_list)
-            print(sparse_list)
         else:
             self.compute_non_sparse = True
             self.build_descriptor()
