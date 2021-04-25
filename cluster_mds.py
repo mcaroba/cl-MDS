@@ -104,6 +104,7 @@ class clMDS:
                 self.n_sparse = len(sparsify)
                 self.sparsify = sparsify
                 if self.has_dist_matrix:
+                    self.sparse_list = sorted(sparsify)
                     self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
             elif sparsify not in sparse_options:
                 raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
@@ -115,7 +116,7 @@ class clMDS:
                     self.sparsify = sparsify
                     self.n_sparse = n_sparse
                 if sparsify == "cur" and self.has_dist_matrix:
-                    self.sparse_list = list(set(cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]))
+                    self.sparse_list = sorted(list(set(cur.cur_decomposition(self.dist_matrix, n_sparse)[-1])))
                     self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
 #               Implement the "optimized sparse set" as a sparsify option                                           <--- comment  
 
@@ -244,6 +245,7 @@ class clMDS:
             else:
                 n_env = sum(len(ats) for ats in self.atoms)
             if self.sparsify is not None:
+                self.all_env = n_env
                 if not self.compute_non_sparse:
                     if isinstance(self.sparsify, (list, np.ndarray)):
                         if len(self.sparsify) > n_env:
@@ -261,7 +263,6 @@ class clMDS:
                 else:
                     sparse_list = np.array([i for i in range(0, n_env) if i not in self.sparse_list], dtype=int)
                     self.sparse_list = sparse_list
-                    self.all_env = n_env
             else:
 #               Added to avoid possible crushes in other methods
                 self.sparse_list = list(range(n_env))
@@ -290,8 +291,8 @@ class clMDS:
                         config_type_list.append(ats.info["config_type"])
                     else:
                         config_type_list.append(None)
-                if self.sparsify: 
-                    if self.sparsify=="random" or isinstance(self.sparsify, (list, np.ndarray)):
+                if self.sparsify is not None: 
+                    if isinstance(self.sparsify, (list, np.ndarray)) or self.sparsify=="random":
                         in_sparse = (sparse_list >= n) & (sparse_list < n + len(ats))
                         if not (in_sparse).any():
                             n += len(ats)
@@ -328,9 +329,10 @@ class clMDS:
                         n += 1
                 
             descriptor_list = np.array(descriptor_list)
-            if not self.compute_non_sparse and (self.sparsify == "cur"):
-                self.sparse_list = list(set(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1]))
-                descriptor_list = descriptor_list[self.sparse_list,:]
+            if not self.compute_non_sparse and isinstance(self.sparsify, str):
+                if self.sparsify == "cur":
+                    self.sparse_list = list(set(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1]))
+                    descriptor_list = descriptor_list[self.sparse_list,:]
             if self.verbose:
                 sys.stdout.write('\rComputing descriptors:%6.1f%%' % 100. )
                 sys.stdout.flush()
@@ -965,23 +967,30 @@ class clMDS:
         return H, A, T
 
 
-#   This method gives a "cheap" estimation of the MDS coordinates of the points not included in the sparse set
-    def compute_estim_coordinates(self, hierarchy, precision=1e-8):
+#   This method gives a "cheap" estimation of the MDS coordinates of points not included in the sparse set
+#   If indices=None (default), the complete database is estimated. Otherwise, please provide an array or list of indices.
+    def compute_estim_coordinates(self, hierarchy, precision=1e-8, indices=None):
         if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
         hierarchy = self.hierarchy
         sparse_list = self.sparse_list
         sparse_descriptor = self.descriptor
-
+        print(sparse_list)
 #       Compute the descriptors of all the atoms left out of the sparse set
-        self.compute_non_sparse = True
-        self.build_descriptor()
+        if isinstance(indices, (list, np.ndarray)):
+            self.sparsify = indices
+            self.build_descriptor()
+            assert set(indices) == set(self.sparse_list)
+            print(sparse_list)
+        else:
+            self.compute_non_sparse = True
+            self.build_descriptor()
         all_env = self.all_env
         n_env = self.n_env
         non_sparse_list = self.sparse_list
 #       Classify them considering the clustering of the sparse set
-        cluster_indices = np.zeros(all_env, dtype=int)
+        cluster_indices = - np.ones(all_env, dtype=int)
         cluster_indices[sparse_list] = self.sparse_cluster_indices
         if self.verbose:
             print("")
@@ -1025,7 +1034,7 @@ class clMDS:
                 for k in range(0, len(C_sparse)):
                     ind_sparse = C_sparse[k]
                     prod = np.dot(self.descriptor[ind], sparse_descriptor[ind_sparse])**self.zeta
-                    if prod < 1.:
+                    if prod <= 1. - precision:
                         dist_cluster[j][k] = np.sqrt(1. - prod)
                     else:
                         dist_cluster[j][k] = 0.          
