@@ -116,7 +116,7 @@ class clMDS:
                     self.sparsify = sparsify
                     self.n_sparse = n_sparse
                 if sparsify == "cur" and self.has_dist_matrix:
-                    self.sparse_list = sorted(list(set(cur.cur_decomposition(self.dist_matrix, n_sparse)[-1])))
+                    self.sparse_list = list(set(cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]))
                     self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
 #               Implement the "optimized sparse set" as a sparsify option                                           <--- comment  
 
@@ -436,18 +436,18 @@ class clMDS:
             raise Exception("No descriptor defined: nothing to do!")
 
 
-#   Method that prints a silhouette analysis for a given dataset, range of number of clusters 
-#   and k-medoids parameters (no plot, only some relevant values)                                     
+#   Method that prints a small analysis of intra-cluster incoherence and silhouette values for   
+#   a given dataset, range of number of clusters and k-medoids parameters (no plot, only values)                                  
 #   Improve how are shown the results                                                                     <-- comment 
-    def silhouette_analysis(self, n_cluster_min=2, n_cluster_max=10, specific_Ms="isolated",
-                            specific_n_iso=None, n_ranking=15):
+    def clustering_analysis(self, n_cluster_min=2, n_cluster_max=10, specific_Ms="isolated",
+                            specific_n_iso=None, I_min="tot", n_ranking=15):
         if not self.has_dist_matrix:
             self.build_dist_matrix()
 
         from sklearn.metrics import silhouette_samples, silhouette_score
 
-        print(" N_cl  n_iso   I_rel   average silhouette   min/max. silhouette   cluster  size cluster ")
-        print("-----------------------------------------------------------------------------------------")
+        print(" N_cl  n_iso  |  I_rel     I_tot   |  average silhouette   min/max. silhouette  |  cluster  size ")
+        print("-------------------------------------------------------------------------------------------------")
         N_cl = np.arange(n_cluster_min, n_cluster_max+1, 1)
         if specific_Ms=="random":
             param_iso = [0]
@@ -460,6 +460,7 @@ class clMDS:
 
         C_ind = np.empty( len(self.dist_matrix), dtype=int )
         I_rel = 10*np.ones( (len(N_cl), len(param_iso)) )
+        I_tot = np.ones( (len(N_cl), len(param_iso)) )*10**4
         average_sil = -10*np.ones( (len(N_cl), len(param_iso)) )
         for n in N_cl:
             ind = n - n_cluster_min
@@ -468,25 +469,31 @@ class clMDS:
                     break
                 M, C, I_rel[ind,m] = optim_kmedoids( self.dist_matrix, n, incoherence="rel", 
                                              init_Ms=specific_Ms, n_iso=param)
+                I_tot[ind,m] = 0.
                 for i in range(0, n):
                     C_ind[C[i]] = i
+                    I_tot[ind,m] += np.sum(self.dist_matrix[M[i]][C[i]])
                 average_sil[ind,m] = silhouette_score(self.dist_matrix, C_ind, metric="precomputed")
                 sil_values = silhouette_samples(self.dist_matrix, C_ind, metric="precomputed")
-                print(" %2i     %2i         %2.6f      %2.6f" % (n, param, I_rel[ind,m], average_sil[ind,m]))
+                print(" %2i     %2i    |  %2.4f  %2.4f  |    %2.4f" % (n, param, I_rel[ind,m], I_tot[ind,m],
+                                                                             average_sil[ind,m]))
                 for i in range(0, n):
                     sil_cluster = sil_values[C[i]]
-                    print("                               %2.6f        % 2.6f/% 2.6f     %4i        %5i "  
+                    print("              |                    |      %2.6f        % 2.6f/% 2.6f   |  %4i     %4i "  
                           % (np.mean(sil_cluster), np.min(sil_cluster), np.max(sil_cluster), i, len(C[i])))
-        print("-------------------------------------------------------------------------------------------")
-        print("n.         silhuoette             incoherence  ")
-        print("        N_cl  n_iso    s        N_cl  n_iso    I")
+        print("----------------------------------------------------------------------------------------------")
+        print("n.         silhuoette                    incoherence            ")
+        print("        N_cl  n_iso    s        N_cl  n_iso    I_tot    I_rel   ")
         score_sil = np.argsort( average_sil.flatten() )
-        score_I = np.argsort( I_rel.flatten() )
+        if I_min == "tot":
+            score_I = np.argsort( I_tot.flatten() )
+        elif I_min == "rel":
+            score_I = np.argsort( I_rel.flatten() )
         for i in range(1, n_ranking+1):
             row_sil, row_I = score_sil[-i]//len(param_iso), score_I[i-1]//len(param_iso)
             col_sil, col_I = score_sil[-i]%len(param_iso), score_I[i-1]%len(param_iso)
-            print("%2i       %2i    %2i    %2.3f      %2i    %2i    %2.3f" % (i, N_cl[row_sil], param_iso[col_sil], 
-                   average_sil[row_sil, col_sil], N_cl[row_I], param_iso[col_I], I_rel[row_I, col_I]))
+            print("%2i       %2i    %2i    %2.3f      %2i    %2i       %2.3f  %2.3f" % (i, N_cl[row_sil], param_iso[col_sil], 
+                   average_sil[row_sil, col_sil], N_cl[row_I], param_iso[col_I], I_tot[row_I, col_I], I_rel[row_I, col_I]))
 
 
 #   This method clusters the data and produces the embedded 2-dimensional coordinates
