@@ -880,7 +880,7 @@ class clMDS:
             diff_X_new = X_new - X_new[1,:]
 #           CASE 2: cluster with 2 or 3 anchor points (linear transformation + regularization)
             if len(self.order_anchor[i]) in [2,3]:
-                reg = np.ones(len(C_sparse))*reg_param    
+                reg = np.ones(len(diff_X_prev))*reg_param    
                 reg = np.diag(reg)
                 T = np.linalg.lstsq(diff_X_prev - reg, diff_X_new, rcond=None )[0]
                 self.transformation.append(T)
