@@ -502,7 +502,7 @@ class clMDS:
     def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
                     n_anchor=4, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
-                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1e-7, eta=0., reg_param=0.):
+                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1e-7, eta=0.):
         """
         Parameters:
 
@@ -690,7 +690,7 @@ class clMDS:
                                           embedding_h, precision = precision_qhull ) 
                     embedding_h.set_params(n_init=n_init_mds_anchor)
 #                   Transformation from previous level to the new one
-                    self.transform_2d( C[newcl], prev_clusters, temp_A, mds_clusters, reg_param=reg_param )
+                    self.transform_2d( C[newcl], prev_clusters, temp_A, mds_clusters )
 
                 for i, cl in enumerate(C[newcl]):
                     for j in H[level-1][cl]:
@@ -861,7 +861,7 @@ class clMDS:
 
 #   This method transforms each cluster from one 2D space (previous) to another (new)
 #   The choice of transformation (linear or homography) depends on the anchor points given for each cluster
-    def transform_2d(self, clusters, prev_clusters, ind_anchor, mds_clusters, reg_param=0.):
+    def transform_2d(self, clusters, prev_clusters, ind_anchor, mds_clusters):
         N_anchor = self.final_n_anchor
         self.transformation = []
         for i in range(0, len(clusters)):
@@ -880,9 +880,7 @@ class clMDS:
             diff_X_new = X_new - X_new[1,:]
 #           CASE 2: cluster with 2 or 3 anchor points (linear transformation + regularization)
             if len(self.order_anchor[i]) in [2,3]:
-                reg = np.ones(len(diff_X_prev))*reg_param    
-                reg = np.diag(reg)
-                T = np.linalg.lstsq(diff_X_prev - reg, diff_X_new, rcond=None )[0]
+                T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
                 self.transformation.append(T)
                 if len(prev_clusters[i]) in [2,3]:
 #                   Small clusters
