@@ -64,6 +64,7 @@ class clMDS:
         self.cutoff = cutoff
         self.average_kernel = average_kernel
         self.compute_non_sparse = False
+        self.has_estimation = False
 #       The descriptor is not attached until build_descriptor() is run
         self.has_descriptor = False
 
@@ -501,7 +502,7 @@ class clMDS:
     def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
                     n_anchor=4, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
-                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1e-7, eta=0.):
+                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1e-7, eta=0., reg_param=0.):
         """
         Parameters:
 
@@ -689,7 +690,7 @@ class clMDS:
                                           embedding_h, precision = precision_qhull ) 
                     embedding_h.set_params(n_init=n_init_mds_anchor)
 #                   Transformation from previous level to the new one
-                    self.transform_2d( C[newcl], prev_clusters, temp_A, mds_clusters )
+                    self.transform_2d( C[newcl], prev_clusters, temp_A, mds_clusters, reg_param=reg_param )
 
                 for i, cl in enumerate(C[newcl]):
                     for j in H[level-1][cl]:
@@ -860,7 +861,7 @@ class clMDS:
 
 #   This method transforms each cluster from one 2D space (previous) to another (new)
 #   The choice of transformation (linear or homography) depends on the anchor points given for each cluster
-    def transform_2d(self, clusters, prev_clusters, ind_anchor, mds_clusters):
+    def transform_2d(self, clusters, prev_clusters, ind_anchor, mds_clusters, reg_param=0.):
         N_anchor = self.final_n_anchor
         self.transformation = []
         for i in range(0, len(clusters)):
@@ -877,9 +878,11 @@ class clMDS:
             X_new = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :][self.order_anchor[i]]
             diff_X_prev = X_prev - X_prev[1,:]
             diff_X_new = X_new - X_new[1,:]
-#           CASE 2: cluster with 2 or 3 anchor points (linear transformation)
+#           CASE 2: cluster with 2 or 3 anchor points (linear transformation + regularization)
             if len(self.order_anchor[i]) in [2,3]:
-                T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
+                reg = np.ones(len(C_sparse))*reg_param    
+                reg = np.diag(reg)
+                T = np.linalg.lstsq(diff_X_prev - reg, diff_X_new, rcond=None )[0]
                 self.transformation.append(T)
                 if len(prev_clusters[i]) in [2,3]:
 #                   Small clusters
@@ -974,12 +977,51 @@ class clMDS:
         return H, A, T
 
 
-#   This method gives a "cheap" estimation of the MDS coordinates of points not included in the sparse set
-#   If indices=None (default), the complete database is estimated. Otherwise, please provide an array or list of indices.
-    def compute_estim_coordinates(self, hierarchy, precision=1e-8, indices=None):
+
+
+#   This is a user friendly function that returns the clusters and medoids of the complete set
+#   or of the specified indices
+    def get_all_coordinates(self, hierarchy, sparse_info=False, precision=1e-8, reg_param=0.001, indices=None):
+        """
+        This function calls compute_estim_coordinates() to obtain an estimation for all the points
+        in the dataset (default, indices=None) or for a given array of indices.
+        If already computed, you can still use it to get the array of coordinates and clusters.
+        """
+        if hasattr(self, 'hierarchy'):
+            if hierarchy != self.hierarchy:
+                print("Warning: You provided a different hierarchy before, ", self.hierarchy)
+                print("It will be used instead of the given one, please check before next time")  
+                hierarchy = self.hierarchy
+
         if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
+        if not self.has_estimation:
+            self.compute_estim_coordinates(precision=precision, reg_param=reg_param, indices=indices)
+
+        ext_coordinates = np.empty([self.all_env,3])
+        ext_coordinates[0:self.all_env, 0:2] = self.all_coordinates
+        ext_coordinates[0:self.all_env, 2] = self.all_cluster_indices
+
+        if sparse_info:
+            A = data.extract_transf_info(info="anchor")[1][0]
+            labels = np.zeros(self.all_env)
+            for i, ind in enumerate(self.sparse_list):
+                ind_C = ext_coordinates[ind,2]
+                if i in self.sparse_medoids:
+                    labels[ind] = 3
+                elif i in A[ind_C]:
+                    labels[ind] = 2
+                else:
+                    labels[ind] = 1
+            ext_coordinates = np.concatenate((ext_coordinates, labels[:,None]), axis=1)
+
+        return ext_coordinates
+
+
+#   This method gives a "cheap" estimation of the MDS coordinates of points not included in the sparse set
+#   If indices=None (default), the complete database is estimated. Otherwise, please provide an array or list of indices.
+    def compute_estim_coordinates(self, precision=1e-8, reg_param=0.001, indices=None):
         hierarchy = self.hierarchy
         sparse_list = self.sparse_list
         sparse_descriptor = self.descriptor
@@ -1047,7 +1089,9 @@ class clMDS:
 #           Transformation matrix T from distance space to 2D ( X·T = Y)
             dist_sparse = self.dist_matrix[np.ix_(C_sparse, C_sparse)]
             local_mds_sparse = self.local_sparse_coordinates[C_sparse,:]
-            T = np.linalg.lstsq(dist_sparse, local_mds_sparse, rcond=None)[0]
+            reg = np.ones(len(C_sparse))*reg_param        # regularization
+            reg = np.diag(reg)
+            T = np.linalg.lstsq(dist_sparse - reg, local_mds_sparse, rcond=None)[0]
             self.all_transformations[i]["dist"] = T
             local_coordinates[C] = np.dot(dist_cluster, T)
 
@@ -1086,6 +1130,7 @@ class clMDS:
                 sys.stdout.flush()
                 print("")
                                            
+        self.has_estimation = True
         self.sparse_list = list(sparse_list) 
         self.descriptor = sparse_descriptor
         self.all_local_coordinates = local_coordinates
@@ -1093,19 +1138,6 @@ class clMDS:
         self.all_cluster_indices = cluster_indices
         self.all_coordinates = transf_coordinates
 
-
-
-
-#   This is a user friendly function that returns the clusters and medoids of the complete set
-    def get_all_coordinates(self, hierarchy):
-        if not self.compute_non_sparse:
-            self.compute_estim_coordinates(hierarchy = hierarchy)
-
-        ext_coordinates = np.empty([self.all_env,3])
-        ext_coordinates[0:self.all_env, 0:2] = self.all_coordinates
-        ext_coordinates[0:self.all_env, 2] = self.all_cluster_indices
-
-        return ext_coordinates
 
 
 
