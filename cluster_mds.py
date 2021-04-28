@@ -1002,7 +1002,7 @@ class clMDS:
         ext_coordinates[0:self.all_env, 2] = self.all_cluster_indices
 
         if sparse_info:
-            A = data.extract_transf_info(info="anchor")[1][0]
+            A = self.extract_transf_info(info="anchor")[1][0]
             labels = np.zeros(self.all_env)
             for i, ind in enumerate(self.sparse_list):
                 ind_C = ext_coordinates[ind,2]
