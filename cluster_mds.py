@@ -326,11 +326,11 @@ class clMDS:
                         if not self.sparsify_per_cluster:
                             if isinstance(self.sparsify, (list,np.ndarray)) or self.sparsify == "random":
                                 if n in sparse_list:       
-                                    descriptor_list.append(q)  
+                                    descriptor_list.append(q[symb][N[symb]])  
                             else:    
-                                descriptor_list.append(q)                                 
+                                descriptor_list.append(q[symb][N[symb]])                                 
                         else:
-                            descriptor_list.append(q) 
+                            descriptor_list.append(q[symb][N[symb]]) 
                         N[symb] += 1 
                         n += 1                
             descriptor_list = np.array(descriptor_list)
