@@ -470,7 +470,6 @@ class clMDS:
             C_indices[C[i]] = i
             if n_C[i] < n_sparse:
                 C_incomplete.append(i)
-        print(n_C)
         if C_incomplete:
             non_sparse_list = [i for i in range(0, self.all_env) if i not in sparse_list]
             np.random.shuffle(non_sparse_list)
@@ -513,7 +512,6 @@ class clMDS:
                         out_sparse.update(C[i][max_n_sparse:])
                     sparse_list = [point for i, point in enumerate(sparse_list) if i not in out_sparse]
                     C_indices = np.array([ind for i, ind in enumerate(C_indices) if i not in out_sparse])
-            print(type(C_indices))
             C_indices = C_indices[ np.argsort(sparse_list) ]
             C = {i: np.where(C_indices == i)[0] for i in range(0, n_clusters) } 
             self.n_env = len(sparse_list)
@@ -522,9 +520,6 @@ class clMDS:
             self.n_sparse = n_sparse
         else:
             print("The sparse set already fulfils your n_sparse request.")  
-       
-        n_C = [len(C[i]) for i in range(0,n_clusters)]
-        print(n_C)
 
         return M, C, I
 
