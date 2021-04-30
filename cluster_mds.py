@@ -51,8 +51,8 @@ class clMDS:
 
 #   Initialize the class:
     def __init__(self, dist_matrix=None, atoms=None, descriptor=None, descriptor_string=None,
-                 sparsify=None, sparsify_per_cluster=False, n_sparse=None, average_kernel=False, 
-                 cutoff=None, verbose=True):
+                 sparsify=None, sparsify_per_cluster=False, n_sparse=None, max_n_sparse=None,
+                 average_kernel=False, cutoff=None, verbose=True):
 #       This is the list of implemented atomic descriptors (it typically requires external
 #       programs)
         implemented_descriptors = ["quippy_soap","quippy_soap_turbo"]
@@ -61,6 +61,7 @@ class clMDS:
         self.sparsify = sparsify
         self.sparsify_per_cluster = sparsify_per_cluster
         self.n_sparse = n_sparse
+        self.max_n_sparse = max_n_sparse
         self.is_clustered = False
         self.has_clmds = False
         self.cutoff = cutoff
@@ -150,7 +151,7 @@ class clMDS:
                 n_Z = len(species_set)
                 if descriptor == "quippy_soap":
                     if self.cutoff == None:
-                        cutoff = 3.0
+                        cutoff = 5.0
                         self.cutoff = cutoff
                     else:
                         cutoff = self.cutoff
@@ -444,20 +445,32 @@ class clMDS:
 
 
 #   This function ensures a minimum amount of points per cluster in the sparse set
-    def cluster_sparsification(self, n_clusters, init_medoids="random", n_iso_med=None):
+    def cluster_sparsification(self, n_clusters, init_medoids="random", n_iso_med=None, 
+                               iter_med=1000, tmax=100):
         if not self.sparsify_per_cluster:
-            self.sparsify_per_cluster = True
-            self.build_descriptor()               
-        if not self.has_dist_matrix:
-            self.build_dist_matrix()
+            raise Exception("You haven't set sparsify_per_cluster=True. Please check if you want \
+                             that kind of sparsification and set it right.")
+        n_sparse = self.n_sparse
+        self.n_sparse = self.n_sparse*n_clusters
+        if not self.has_descriptor:
+            self.build_descriptor()
+        elif len(self.descriptor) < self.all_env:
+            self.build_descriptor()
+        self.build_dist_matrix()
 
         sparse_list = self.sparse_list
 #       Compute the clustering with the initial sparse set
-        M, C, I = optim_kmedoids( self.dist_matrix, n_clusters, incoherence="rel",
-                                  init_Ms=init_medoids, n_iso=n_iso_med, verbose=self.verbose)
-        n_C = [len(C[i]) for i in range(0, n_clusters)]
-        C_incomplete = [i for i in range(0, n_clusters) if (n_C[i] < self.n_sparse)]
-        print(C_incomplete, n_C)
+        M, C, I = optim_kmedoids( self.dist_matrix, n_clusters, incoherence="rel", n_iter=iter_med, 
+                                  tmax=tmax, init_Ms=init_medoids, n_iso=n_iso_med, verbose=self.verbose)
+        n_C = []
+        C_incomplete = []
+        C_indices = np.zeros(self.n_env, dtype=int)
+        for i in range(0, n_clusters):
+            n_C.append(len(C[i]))
+            C_indices[C[i]] = i
+            if n_C[i] < n_sparse:
+                C_incomplete.append(i)
+        print(n_C)
         if C_incomplete:
             non_sparse_list = [i for i in range(0, self.all_env) if i not in sparse_list]
             np.random.shuffle(non_sparse_list)
@@ -475,21 +488,45 @@ class clMDS:
                 ind_cluster = np.argmin(dist_med)
                 if ind_cluster in C_incomplete:
                     sparse_list.append(i)
+                    C_indices = np.append(C_indices, ind_cluster)
                     n_C[ind_cluster] += 1
-                    C_incomplete = [i for i in range(0, n_clusters) if (n_C[i] < self.n_sparse)]
+                    C_incomplete = [i for i in range(0, n_clusters) if (n_C[i] < n_sparse)]
 #               Check if all the clusters has at least n_sparse elements
                 if not C_incomplete:
                     break
+            add_points = 0
             if C_incomplete:
                 for i in C_incomplete:
+                    add_points += n_sparse - n_C[i]
                     print('Only %i elements where found for cluster %i in the complete database' 
                           % (n_C[i], i))
+            if self.max_n_sparse:
+                max_n_sparse = self.max_n_sparse
+                C_overfull = [i for i in range(0, n_clusters) if n_C[i] > max_n_sparse]
+                if add_points:
+                    max_n_sparse = max_n_sparse + add_points//len(C_overfull)
+                    C_overfull = [i for i in range(0, n_clusters) if n_C[i] > max_n_sparse]
+                if C_overfull:
+                    out_sparse = set()
+                    for i in C_overfull:
+                        np.random.shuffle(C[i])
+                        out_sparse.update(C[i][max_n_sparse:])
+                    sparse_list = [point for i, point in enumerate(sparse_list) if i not in out_sparse]
+                    C_indices = np.array([ind for i, ind in enumerate(C_indices) if i not in out_sparse])
+            print(type(C_indices))
+            C_indices = C_indices[ np.argsort(sparse_list) ]
+            C = {i: np.where(C_indices == i)[0] for i in range(0, n_clusters) } 
             self.n_env = len(sparse_list)
             self.sparse_list = sorted(sparse_list)
             self.build_dist_matrix()
+            self.n_sparse = n_sparse
         else:
-            print("The sparse set already fulfils your n_sparse request.")         
+            print("The sparse set already fulfils your n_sparse request.")  
+       
+        n_C = [len(C[i]) for i in range(0,n_clusters)]
+        print(n_C)
 
+        return M, C, I
 
 
 
@@ -600,18 +637,19 @@ class clMDS:
             raise Exception("You need to define a hierarchy of cluster levels by providing the \
                             hierarchy parameter, e.g., [8,1] or [8,3,1]")
 
-        if not self.has_dist_matrix:
-            self.build_dist_matrix()
-
-        if self.sparsify_per_cluster:
-            self.cluster_sparsification(n_clusters, init_medoids=init_medoids, n_iso_med=n_iso_med)
-
         self.hierarchy = hierarchy
 
-#       Finest clustering (initial hierarchy level) 
-        ind_medoids, ind_clusters, I = optim_kmedoids( self.dist_matrix, n_clusters, incoherence="rel",
-                                                    n_iter=iter_med, tmax=tmax, init_Ms=init_medoids,
-                                                    n_iso=n_iso_med, verbose=self.verbose )
+#       Finest clustering (initial hierarchy level)
+        if not self.sparsify_per_cluster: 
+            if not self.has_dist_matrix:
+                self.build_dist_matrix() 
+            ind_medoids, ind_clusters, I = optim_kmedoids( self.dist_matrix, n_clusters, incoherence="rel",
+                                                           n_iter=iter_med, tmax=tmax, init_Ms=init_medoids,
+                                                           n_iso=n_iso_med, verbose=self.verbose )
+        else: 
+            ind_medoids, ind_clusters, I = self.cluster_sparsification(n_clusters, init_medoids=init_medoids,
+                                                                       n_iso_med=n_iso_med, iter_med=iter_med,
+                                                                       tmax=tmax)
         dist_clusters = [self.dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
                          for i in range(0, n_clusters)]      
 #       MDS calculation minimizing the stress
