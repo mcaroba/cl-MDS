@@ -512,7 +512,9 @@ class clMDS:
                         out_sparse.update(C[i][max_n_sparse:])
                     sparse_list = [point for i, point in enumerate(sparse_list) if i not in out_sparse]
                     C_indices = np.array([ind for i, ind in enumerate(C_indices) if i not in out_sparse])
-            C_indices = C_indices[ np.argsort(sparse_list) ]
+            new_indices = np.argsort(sparse_list)
+            C_indices = C_indices[ new_indices ]
+            M = np.array([np.where(new_indices == med)[0][0] for med in M])
             C = {i: np.where(C_indices == i)[0] for i in range(0, n_clusters) } 
             self.n_env = len(sparse_list)
             self.sparse_list = sorted(sparse_list)
