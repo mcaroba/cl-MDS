@@ -142,13 +142,13 @@ class clMDS:
                 for at in ats:
                     species_list.append(at.symbol)
             self.species_list = species_list
-            species_set = list(set(species_list))
+            species = list(set(species_list))
 #           This uses some default SOAP parameters
             if descriptor_string is None:
                 species_string = ""
-                for species in species_set:
-                    species_string += " " + str(atomic_numbers[species])
-                n_Z = len(species_set)
+                for z in species:
+                    species_string += " " + str(atomic_numbers[z])
+                n_Z = len(species)
                 if descriptor == "quippy_soap":
                     if self.cutoff == None:
                         cutoff = 5.0
@@ -171,6 +171,8 @@ class clMDS:
                         rcut_soft = self.cutoff[0]
                         rcut_hard = self.cutoff[1]
                     elif len(self.cutoff) == 2*n_Z:
+#                       Be careful with this allocation of cutoff per specie, it depends on the order of           <-- comment
+#                       *species* which isn't preserved from one atoms file to another
                         cutoff = self.cutoff
                     else:
                         raise Exception("soap_turbo uses two cutoff (soft and hard cutoff) per specie. \
@@ -184,7 +186,7 @@ class clMDS:
                         amplitude += " 1."
                         central_w += " 1."
                     quippy_string = {}
-                    for i, z in enumerate(species_set):
+                    for i, z in enumerate(species):
                         rcut_soft = min(cutoff[2*i:2*(i+1)])
                         rcut_hard = max(cutoff[2*i:2*(i+1)])
                         quippy_string[z] = 'soap_turbo alpha_max={' + alpha + '} l_max=8 rcut_soft=' + \
@@ -204,7 +206,7 @@ class clMDS:
                 if descriptor == "quippy_soap":
 #                   Check string
                     n_Z = self.get_info_string(quippy_string, label="n_Z", type_label=int)
-                    if n_Z != len(species_set):
+                    if n_Z != len(species):
                         raise Exception("Your database has a different amount of species than the \
                                          given on the descriptor string.")
 #                   Take cutoff and average kernel from descriptor string
@@ -214,25 +216,45 @@ class clMDS:
                     self.average_kernel = average
                 elif descriptor == "quippy_soap_turbo":
 #                   Check string
-                    n_Z = self.get_info_string(quippy_string[species_set[0]], label="n_species", type_label=int)
-                    if n_Z != len(species_set):
-                        raise Exception("Your database has a different amount of species than the \
-                                         given on the descriptor string.")
-                    elif n_Z == 1:
-                        if isinstance(quippy_string, str):
-                            quippy_string = {species_set[0]: quippy_string}
+                    if isinstance(quippy_string, str):   
+                        Z = self.get_info_string(quippy_string, label="species_Z", type_label=int, 
+                                                 is_array=True)
+                        n_Z = len(Z) 
+                        if len(species) == 1 and n_Z == 1:
+                            quippy_string = {species[0]: quippy_string}   
+                        else:
+                            raise Exception("You need to give as many descriptor strings as n_species for \
+                                             %s. Check it corresponds to the species in the database too." 
+                                             % descriptor)                        
+                    elif isinstance(quippy_string, dict):
+                        Z = self.get_info_string(quippy_string[species[0]], label="species_Z", type_label=int, 
+                                                 is_array=True)
+                        n_Z = len(Z) 
+                        if  set(quippy_string.keys()) != set(species):
+                            raise Exception("You need to give as many descriptor strings as n_species for \
+                                             %s, using as dict. keys the appropriate species." % descriptor) 
+                        elif n_Z != len(species):
+                            raise Exception("Your database has a different amount of species than the \
+                                             given on the descriptor string.")
                     else:
-                        if isinstance(quippy_string, str) or len(quippy_string) != n_Z:
+                        Z = self.get_info_string(quippy_string[0], label="species_Z", type_label=int, 
+                                                 is_array=True)
+                        n_Z = len(Z)  
+                        if len(quippy_string) != len(species):
                             raise Exception("You need to give as many descriptor strings as n_species for ",
-                                             descriptor)
-                        elif not isinstance(quippy_string, dict):
-#                           Check this part (I assume the string always has ordered Z)                               <-- comment
-                            indices = [self.get_info_string(quippy_string[i], label="central_index", type_label=int)-1
-                                       for i in range(0, n_Z)]
-                            quippy_string = {species_set[i]: quippy_string[indices[i]] for i in range(0, n_Z)}
+                                             descriptor) 
+                        elif n_Z != len(species):
+                            raise Exception("Your database has a different amount of species than the \
+                                             given on the descriptor string.")
+                        else:
+#                           Check this part (I assume the string always has ordered Z which is not true)           <-- comment
+                            indices = [self.get_info_string(quippy_string[i], "central_index", type_label=int)
+                                       - 1 for i in range(0, n_Z)]
+                            quippy_string = {species[i]: quippy_string[indices[i]] for i in range(0, n_Z) 
+                                             if atomic_numbers[species[i]] == Z[i]}
 #                   Take cutoff from descriptor string
                     cutoff = []
-                    for z in species_set:
+                    for z in species:
                         rsoft = self.get_info_string(quippy_string[z], label="rcut_soft", type_label=float)
                         rhard = self.get_info_string(quippy_string[z], label="rcut_hard", type_label=float)
                         if not rsoft or not rhard:
@@ -271,7 +293,7 @@ class clMDS:
             if descriptor == "quippy_soap":
                 d = Descriptor(quippy_string)
             elif descriptor == "quippy_soap_turbo":
-                d = {z: Descriptor(quippy_string[z]) for z in species_set}
+                d = {z: Descriptor(quippy_string[z]) for z in species}
             n = 0
             descriptor_list = []
             config_type_list = []
@@ -314,8 +336,8 @@ class clMDS:
                         n += 1   
                 elif descriptor == "quippy_soap_turbo":   
                     q = {}
-                    N = {z: 0 for z in species_set}
-                    for i, z in enumerate(species_set):   
+                    N = {z: 0 for z in species}
+                    for i, z in enumerate(species):   
                         rcut_hard = max(cutoff[2*i:2*(i+1)])     
                         a = ase_to_quip(ats)
                         a.set_cutoff(rcut_hard)    
@@ -354,52 +376,29 @@ class clMDS:
             raise Exception("You must choose among the implemented descriptors: ", implemented_descriptors)
 
 
-#   Cumbersome code to get a specific label (only those with a single value) from a descriptor string
-    def get_info_string(self, quippy_string, label, type_label=str):
-        list_labels = {"quippy_soap": ["n_max", "l_max","cutoff", "atom_sigma", "n_Z", "n_species", "average"], 
-                       "quippy_soap_turbo": ["alpha_max","l_max","rcut_hard","rcut_soft", "radial_enhancement",
-                                             "n_species", "central_index", "central_weight"] }
-        list_descriptors = list(list_labels.keys())
-        if not self.descriptor_type in list_descriptors:
-            raise Exception("The code can't get any label from a string of the given descriptor_type (yet). \
-                             Available options are: ", list_descriptors)
-#       Check if it is label with a single value (not arrays) 
-        if not label in list_labels[self.descriptor_type]:
-            raise Exception("This method can't extract the chosen label, the available ones for %s are:" 
-                             % self.descriptor_type,  list_labels[self.descriptor_type])
-        a = quippy_string.split()
-        if a[0] != self.descriptor_type[7:]:
+
+#   Cumbersome code to get a specific label from a descriptor string
+    def get_info_string(self, quippy_string, label, type_label=str, is_array=False):
+#       Check if additional descriptors are added                                                             <-- comment
+        a = quippy_string.split()[0]
+        if a != self.descriptor_type[7:]:
             raise Exception("The descriptor string doesn't correspond to the descriptor type, check this.")
         N = len(label)
+        a = quippy_string.split('=')
         for i in range(0, len(a)):
-            b = a[i]
-            if b[0:N] != label:
-                continue
-            if len(b) == N:
-                c = a[i+1]
-                if len(c) == 1:
-                    param = a[i+2]
-                    break
+            if label in a[i]:
+                b = a[i+1]
+                if is_array:
+                    c = ( ( b.split('}')[0] ).split('{')[1] ).split()
+                    param = np.array(c).astype(type_label)
                 else:
-                    param = c[1:]
-                    break
-            elif len(b) == N+1:
-                c = a[i+1]
-                param = c
-                break
-            else:
-                param = b[N+1:]
+                    param = type_label( b.split()[0] )
                 break
         else:
-            param = False
-
-        if param:
-            if type_label == float:
-                param = float(param)
-            elif type_label == int:
-                param = int(param)
+            param = None
 
         return param
+
 
 
 #   This method takes care of building a distance matrix:
