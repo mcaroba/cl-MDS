@@ -52,7 +52,7 @@ class clMDS:
 #   Initialize the class:
     def __init__(self, dist_matrix=None, atoms=None, descriptor=None, descriptor_string=None,
                  sparsify=None, sparsify_per_cluster=False, n_sparse=None, max_n_sparse=None,
-                 average_kernel=False, cutoff=None, verbose=True):
+                 average_kernel=False, cutoff=None, do_species=None, verbose=True):
 #       This is the list of implemented atomic descriptors (it typically requires external
 #       programs)
         implemented_descriptors = ["quippy_soap","quippy_soap_turbo"]
@@ -100,6 +100,12 @@ class clMDS:
             self.descriptor_type = descriptor
             self.descriptor_string = descriptor_string
 
+#       Check if the user only wants specific species to be considered
+        if do_species is None:
+            self.do_species = True
+        else:
+            self.do_species = do_species
+
 #       Check if the user wants to use sparsification       
         if sparsify is not None:
             if isinstance(sparsify, (list, np.ndarray)):
@@ -126,7 +132,7 @@ class clMDS:
 
 
 #   This method takes care of adding a descriptor to the clMDS class:
-    def build_descriptor(self):
+    def build_descriptor(self, zeta=4):
         if not hasattr(self, 'descriptor_type'):
             raise Exception("You must define a descriptor, check the implemented options")
 
@@ -136,13 +142,16 @@ class clMDS:
             from ase.data import atomic_numbers
             from quippy.descriptors import Descriptor
             from quippy.convert import ase_to_quip
-            self.zeta = 4
+            self.zeta = zeta
             species_list = []
             for ats in self.atoms:
                 for at in ats:
                     species_list.append(at.symbol)
             self.species_list = species_list
-            species = list(set(species_list))
+            if self.do_species:
+                species = list(set(species_list))
+            else:
+                species = list(set(self.do_species))
 #           This uses some default SOAP parameters
             if descriptor_string is None:
                 species_string = ""
