@@ -239,22 +239,22 @@ class clMDS:
                         Z = self.get_info_string(quippy_string[species[0]], label="species_Z", type_label=int, 
                                                  is_array=True)
                         n_Z = len(Z) 
-                        if  set(quippy_string.keys()) != set(species):
-                            raise Exception("You need to give as many descriptor strings as n_species for \
-                                             %s, using as dict. keys the appropriate species." % descriptor) 
-                        elif n_Z != len(species):
+                        if set(quippy_string.keys()) < set(species):
+                            raise Exception("You need to give as many descriptor strings as n_species (at least) \
+                                             for %s, using as dict. keys the appropriate species." % descriptor) 
+                        elif n_Z < len(species):
                             raise Exception("Your database has a different amount of species than the \
                                              given on the descriptor string.")
                     else:
                         Z = self.get_info_string(quippy_string[0], label="species_Z", type_label=int, 
                                                  is_array=True)
                         n_Z = len(Z)  
-                        if len(quippy_string) != len(species):
+                        if len(quippy_string) < len(species):
                             raise Exception("You need to give as many descriptor strings as n_species for ",
                                              descriptor) 
-                        elif n_Z != len(species):
-                            raise Exception("Your database has a different amount of species than the \
-                                             given on the descriptor string.")
+                        elif n_Z < len(species):
+                            raise Exception("Your database has a lower amount of species than the given \
+                                             on the descriptor string.")
                         else:
 #                           Check this part (I assume the string always has ordered Z which is not true)           <-- comment
                             indices = [self.get_info_string(quippy_string[i], "central_index", type_label=int)
