@@ -148,7 +148,7 @@ class clMDS:
                 for at in ats:
                     species_list.append(at.symbol)
             self.species_list = species_list
-            if self.do_species:
+            if self.do_species is True:
                 species = list(set(species_list))
             else:
                 species = list(set(self.do_species))
