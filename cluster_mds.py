@@ -353,8 +353,9 @@ class clMDS:
                         a.calc_connect()
                         q[z] = d[z].calc_descriptor(a) 
                     ind_ats = []
+                    ats_Z = np.array(ats.get_chemical_symbols())
                     for z in species:
-                        ind_ats += list(np.where(ats.get_chemical_symbols() == z)[0])
+                        ind_ats += list(np.where(ats_Z == z)[0])
                     for i in sorted(ind_ats):
                         symb = ats[i].symbol
                         if not self.sparsify_per_cluster:
