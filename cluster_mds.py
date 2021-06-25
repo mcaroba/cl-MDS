@@ -351,19 +351,22 @@ class clMDS:
                         a = ase_to_quip(ats)
                         a.set_cutoff(rcut_hard)    
                         a.calc_connect()
-                        q[z] = d[z].calc_descriptor(a)   
-                    for at in ats:
-                        symb = at.symbol
+                        q[z] = d[z].calc_descriptor(a) 
+                    ind_ats = []
+                    for z in species:
+                        ind_ats += list(np.where(ats.get_chemical_symbols() == z)[0])
+                    for i in sorted(ind_ats):
+                        symb = ats[i].symbol
                         if not self.sparsify_per_cluster:
                             if isinstance(self.sparsify, (list,np.ndarray)) or self.sparsify == "random":
-                                if n in sparse_list:       
+                                if n + i in sparse_list:       
                                     descriptor_list.append(q[symb][N[symb]])  
                             else:    
                                 descriptor_list.append(q[symb][N[symb]])                                 
                         else:
                             descriptor_list.append(q[symb][N[symb]]) 
                         N[symb] += 1 
-                        n += 1                
+                    n += len(ats)                
             descriptor_list = np.array(descriptor_list)
             if isinstance(self.sparsify, str):
                 if self.sparsify == "cur":
