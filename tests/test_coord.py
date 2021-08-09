@@ -1,6 +1,7 @@
 
 import numpy as np
 import cluster_mds as clmds
+from sklearn.metrics import pairwise_distances
 import time
 
 print(" ")
@@ -11,9 +12,11 @@ print(" ")
 hierarchy = [[5,1],[5,3,1]]
 
 for N in [100, 500, 1000]:
-    D = np.random.rand(N,N)
-    np.fill_diagonal(D, 0)
-    D = (D + D.T)/2
+#    D = np.random.rand(N,N)
+#    np.fill_diagonal(D, 0)
+#    D = (D + D.T)/2
+    X = np.random.rand(N,3)
+    D = pairwise_distances(X) # normalizar?
     data = clmds.clMDS(dist_matrix=D, verbose=False)
     for h in hierarchy:
         print(" ")

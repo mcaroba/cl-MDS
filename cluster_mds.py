@@ -36,7 +36,6 @@ import sys
 import itertools
 from scipy.special import comb
 from scipy.spatial import ConvexHull
-import time
 
 #************************************************************************************************************
 class clMDS:
@@ -152,7 +151,6 @@ class clMDS:
                 species = list(set(species_list)) 
             else:
                 species = list(set(self.do_species))
-            print(species)
 #           This uses some default SOAP parameters
             if descriptor_string is None:
                 species_string = ""
@@ -368,7 +366,7 @@ class clMDS:
                         else:
                             descriptor_list.append(q[symb][N[symb]]) 
                         N[symb] += 1 
-                    n += len(ats)                   
+                    n += len(ats)
             descriptor_list = np.array(descriptor_list)
             if isinstance(self.sparsify, str):
                 if self.sparsify == "cur":
@@ -660,7 +658,6 @@ class clMDS:
             ind_medoids, ind_clusters, I = self.cluster_sparsification(n_clusters, init_medoids=init_medoids,
                                                                        n_iso_med=n_iso_med, iter_med=iter_med,
                                                                        tmax=tmax)
-
         dist_clusters = [self.dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
                          for i in range(0, n_clusters)]      
 #       MDS calculation minimizing the stress
@@ -758,7 +755,7 @@ class clMDS:
             if self.verbose:
                 sys.stdout.write('\rObtaining anchor points:%6.1f%%' % 100. )
                 sys.stdout.flush()
-                print("")                   
+                print("")
          
 #           MDS of anchor points on the new level and their transformations
             self.sparse_coordinates = np.zeros((len(self.dist_matrix), 2))
@@ -848,6 +845,7 @@ class clMDS:
                         mds_anchor, embedding, max_perm=6, precision=None): 
         no_pathologies = 0
         final_vertices = []
+        do_linear = []
         N_anchor = np.zeros((len(clusters)+1, ), dtype=int)
         if precision:
             precision = 'E' + str(precision)
@@ -910,18 +908,18 @@ class clMDS:
 #                           Improve this error message                                                          <-- check this
                             raise Warning("This is a pathological choice of anchor points, check cluster ", i) 
                     if n_perm == max_perm:
-#                       We reached the maximum number of permutations
-#                       Improve this choice (maybe triangle with maximum area in MDS local?)                    <-- comment
-#                       BE CAREFUL with the MDS (do I need to remove the 4th vertex?)                           <-- comment
-                        final_vertices.append(vertices[:3]) 
-#                       Improve this print                                                                      <-- comment
+#                       Decide if it is better to recompute the best 3 anchor points or                         <-- comment
+#                       make a linear transformation with the current 4 anchor points                           <-- comment
+                        final_vertices.append(vertices)
+                        do_linear.append(i)                                                                 
                         if self.verbose:
                             print("\rSelf-intersecting quadrilateral on cluster %i, a linear transformation \
-                                     will be used instead with anchor points " % i, final_vertices[i])
+                                     will be used instead." % i)
                     else:
 #                       The current cluster is now non-pathological
 #                       Check the effects of the new MDS on the convexity of the previous clusters
                         new_vertices = []
+                        new_do_linear = []
                         for j in range(0, i):
                             if len(ind_anchor[j]) <= 3:
                                 temp_pathologies += 1
@@ -937,22 +935,26 @@ class clMDS:
                                         temp_pathologies += 1
                                         new_vertices.append(h.vertices)
                                     else:
-                                        new_vertices.append(h.vertices[:3])
-#                                       Improve this print                                                       <-- comment
+                                        new_vertices.append(h.vertices)
+                                        new_do_linear.append(j)
                                         if self.verbose:
-                                            print("\rSelf-intersecting quadrilateral on cluster %i, a linear \
-                                                     transf. will be used instead with anchor points " % j, 
-                                                   ind_anchor[j][h.vertices[:3]])
+                                            print("\rSelf-intersecting quadrilateral on cluster %i, a \
+                                                   linear transformation will be used instead." % i)
                         if temp_pathologies > no_pathologies:
                             no_pathologies = temp_pathologies
                             mds_anchor = temp_mds
                             final_vertices = new_vertices + [temp_vertices]
+                            do_linear = new_do_linear
                             self.MDS_stress = embedding.stress_
                         else:
 #                           We keep the previous MDS
-#                           Improve this choice (maybe triangle with maximum area in MDS local?)                 <-- comment
-#                           BE CAREFUL with the MDS (do I need to remove the 4th vertex?)                        <-- comment
-                            final_vertices.append(vertices[:3])             
+#                           Decide if it is better to recompute the best 3 anchor points or                     <-- comment
+#                           make a linear transformation with the current 4 anchor points                       <-- comment
+                            final_vertices.append(vertices)
+                            do_linear.append(i)                                                                 
+                            if self.verbose:
+                                print("\rSelf-intersecting quadrilateral on cluster %i, a linear \
+                                         transformation will be used instead." % i)           
             else:
 #               We have a problem here (the code is assigning a wrong number of anchor points or its 
 #               global MDS is a perfect line)                                                               
@@ -966,6 +968,7 @@ class clMDS:
         self.final_n_anchor = N_anchor 
         self.order_anchor = final_vertices
         self.mds_anchor = mds_anchor
+        self.do_linear_transf = do_linear
 
 
 #   This method transforms each cluster from one 2D space (previous) to another (new)
@@ -973,6 +976,7 @@ class clMDS:
     def transform_2d(self, clusters, prev_clusters, ind_anchor, mds_clusters):
         N_anchor = self.final_n_anchor
         self.transformation = []
+        print_label = []
         for i in range(0, len(clusters)):
             if self.verbose:
                 sys.stdout.write( '\rPerforming transformations:%6.1f%%' % (float(i)*100./float(len(clusters))) )
@@ -983,14 +987,15 @@ class clMDS:
                 x_new = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
                 self.sparse_coordinates[ind_anchor[i],:] = x_new
                 self.transformation.append( [[x_new - x_prev]] )
+                print_label.append("translation")
                 continue
             indexes = ind_anchor[i][self.order_anchor[i]]
             X_prev = mds_clusters[indexes,:]
             X_new = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :][self.order_anchor[i]]
             diff_X_prev = X_prev - X_prev[1,:]
             diff_X_new = X_new - X_new[1,:]
-#           CASE 2: cluster with 2 or 3 anchor points (linear transformation + regularization)
-            if len(self.order_anchor[i]) in [2,3]:
+#           CASE 2: cluster with 2-3 anchor points or with a self-intersecting quadrilateral (linear transf.)
+            if (len(self.order_anchor[i]) in [2,3]) or (i in self.do_linear_transf):
                 T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
                 self.transformation.append( [X_prev[1,:], T, X_new[1,:]] )
                 if len(prev_clusters[i]) in [2,3]:
@@ -1000,6 +1005,10 @@ class clMDS:
 #                   Transform and translate each cluster to the origin of its transf. matrix T
                     product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[1,:], T)
                     self.sparse_coordinates[prev_clusters[i], :] = product + X_new[1,:]
+                if i in self.do_linear_transf:
+                    print_label.append("linear (self-intersecting quadrilateral)")
+                else:
+                    print_label.append("linear")
 #           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
             elif len(self.order_anchor[i]) == 4:
                 axis = np.array([[1,0],[0,0],[0,1]])     
@@ -1014,7 +1023,7 @@ class clMDS:
                 try:
                     assert (s > 0) & (t > 0)    
                 except:
-                    raise Warning('The anchor points of cluster %i form a non-convex quadrilateral' % i)
+                    raise Warning('The anchor points of cluster %i form a non-convex quadrilateral' % clusters[i])
                 F = np.array([[b*c*s,     0, b*(c*s - a*t)],
                               [    0, a*d*s, a*(d*s - b*t)],
                               [    0,     0,         a*b*t]])
@@ -1028,12 +1037,20 @@ class clMDS:
                     perspective_homog =  np.dot(transf_prev_homog, F)
                     perspective = perspective_homog/perspective_homog[:,-1][:,None] 
                     self.sparse_coordinates[prev_clusters[i]] = np.dot(perspective[:,:2], T_new_inv) + X_new[1,:]
+                print_label.append("homography")
             else:
-                raise Warning("There must be something wrong, check the list of anchor points: ", ind_anchor)
+                raise Warning("There must be something wrong before cluster %i, check the list of anchor points: "
+                               % clusters[i], ind_anchor)
 
         if self.verbose:
             sys.stdout.write( '\rPerforming transformations:%6.1f%%' % 100. )
             sys.stdout.flush()
+            print("")
+            print("--------------------------")
+            print(" Cluster   Transformation")
+            print("--------------------------")
+            for i in range(0, len(clusters)):
+                print(" %3i        %s" % (clusters[i], print_label[i]))
             print("")            
 
 
@@ -1089,7 +1106,7 @@ class clMDS:
 
 
 #   This is a user friendly function that returns the clusters and medoids of the complete set
-#   or of the specified indices
+#   or of the specified indices (CHECK THIS METHOD)                                                                 <-- comment
     def get_all_coordinates(self, hierarchy, sparse_info=False, precision=1e-8, reg_param=0.001, indices=None):
         """
         This function calls compute_estim_coordinates() to obtain an estimation for all the points
@@ -1202,7 +1219,7 @@ class clMDS:
                         dist_cluster[j][k] = np.sqrt(1. - prod)
                     else:
                         dist_cluster[j][k] = 0.          
-
+            
 #           Transformation matrix T from distance space to 2D ( X·T = Y)
             dist_sparse = self.dist_matrix[np.ix_(C_sparse, C_sparse)]
             local_mds_sparse = self.local_sparse_coordinates[C_sparse,:]
@@ -1213,7 +1230,7 @@ class clMDS:
             local_coordinates[C] = np.dot(dist_cluster, T)
             ind_sparse = np.array(sparse_list)[C_sparse]
             local_coordinates[ind_sparse] = local_mds_sparse
-#           Transform the coordinates from local to global space 
+#           Transform the coordinates from local to global space
             transf_coordinates[C] = local_coordinates[C]                       
             for level in range(1, len(hierarchy)):
                 T_2d = self.all_transformations[i][level]["transf"]
@@ -1224,6 +1241,7 @@ class clMDS:
                 elif len(T_2d) == 3:
 #                   Linear transformation
                     ref_prev, T_lin, ref_new = T_2d
+#                   We need to keep track of the reference anchor point in each step
                     transf_coordinates[C] = np.dot(transf_coordinates[C] - ref_prev, T_lin) + ref_new    
                 else:
 #                   Homography
@@ -1235,7 +1253,6 @@ class clMDS:
                     X_new_homog =  np.dot(X_prev_homog, F)
                     X_new = X_new_homog/X_new_homog[:,-1][:,None]
                     transf_coordinates[C] = np.dot(X_new[:,:2], T_new_inv)
-#                   We need to keep track of the reference anchor point in each step
                     transf_coordinates[C] = transf_coordinates[C] + ref_new
             if self.verbose:
                 sys.stdout.write('\rEmbedding all data (cluster %i):%6.1f%%' % (i, 100.) )
