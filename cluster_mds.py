@@ -36,7 +36,7 @@ import sys
 import itertools
 from scipy.special import comb
 from scipy.spatial import ConvexHull
-
+import time
 
 #************************************************************************************************************
 class clMDS:
@@ -149,9 +149,10 @@ class clMDS:
                     species_list.append(at.symbol)
             self.species_list = species_list
             if self.do_species is True:
-                species = list(set(species_list))
+                species = list(set(species_list)) 
             else:
                 species = list(set(self.do_species))
+            print(species)
 #           This uses some default SOAP parameters
             if descriptor_string is None:
                 species_string = ""
@@ -215,7 +216,7 @@ class clMDS:
                 if descriptor == "quippy_soap":
 #                   Check string
                     n_Z = self.get_info_string(quippy_string, label="n_Z", type_label=int)
-                    if n_Z != len(species):
+                    if n_Z < len(species):
                         raise Exception("Your database has a different amount of species than the \
                                          given on the descriptor string.")
 #                   Take cutoff and average kernel from descriptor string
@@ -367,7 +368,7 @@ class clMDS:
                         else:
                             descriptor_list.append(q[symb][N[symb]]) 
                         N[symb] += 1 
-                    n += len(ats)                
+                    n += len(ats)                   
             descriptor_list = np.array(descriptor_list)
             if isinstance(self.sparsify, str):
                 if self.sparsify == "cur":
@@ -659,6 +660,7 @@ class clMDS:
             ind_medoids, ind_clusters, I = self.cluster_sparsification(n_clusters, init_medoids=init_medoids,
                                                                        n_iso_med=n_iso_med, iter_med=iter_med,
                                                                        tmax=tmax)
+
         dist_clusters = [self.dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
                          for i in range(0, n_clusters)]      
 #       MDS calculation minimizing the stress
@@ -703,7 +705,7 @@ class clMDS:
             if hierarchy[level] > 1:
 #               Assign the clusters of previous level to the current ones
                 D = self.dist_matrix[np.ix_(M_prev, M_prev)]
-                M, C = optim_kmedoids( D, hierarchy[level], incoherence="rel", n_iter=500, init_Ms="isolated",
+                M, C = optim_kmedoids( D, hierarchy[level], incoherence="tot", n_iter=500, init_Ms="isolated",
                                        n_iso=hierarchy[level], verbose=self.verbose )[:2]
 #               Obtain a dictionary with all the indexes of each new cluster
                 C_new = { newcl: np.concatenate( [C_prev[i] for i in C[newcl]] ) 
@@ -731,7 +733,7 @@ class clMDS:
                     sys.stdout.flush()
                 if len(C_prev[i]) <= 3:
                     mds_A.append( mds_clusters[C_prev[i],:] )
-                    ind_A.append( C_prev[i] )
+                    ind_A.append( np.array(C_prev[i]) )
                 elif len(C_prev[i]) == 4:
                     mds = mds_clusters[C_prev[i],:]
                     h = ConvexHull(mds)
@@ -756,8 +758,8 @@ class clMDS:
             if self.verbose:
                 sys.stdout.write('\rObtaining anchor points:%6.1f%%' % 100. )
                 sys.stdout.flush()
-                print("")
-                               
+                print("")                   
+         
 #           MDS of anchor points on the new level and their transformations
             self.sparse_coordinates = np.zeros((len(self.dist_matrix), 2))
             for newcl in range(0, hierarchy[level]):
@@ -767,8 +769,8 @@ class clMDS:
                 A = np.concatenate( temp_A ).astype('int32')
                 if len(A) == 1:
                     self.sparse_coordinates[A,:] = np.zeros((1,2)) # avoid sklearn RuntimeWarning   
-                    self.order_anchor = [0]
-                    self.transformation = [0]
+                    self.order_anchor = [[0]]
+                    self.transformation = [[np.zeros(2)]]
                 else:
                     dist_anchor = self.dist_matrix[np.ix_(A, A)]
                     if hasattr(self, 'descriptor_type') and eta != 0:
@@ -805,7 +807,6 @@ class clMDS:
                         T_hierarchy[j].setdefault(level,{})["cluster"] = newcl
                         T_hierarchy[j].setdefault(level,{})["anchor"] = ind_A[cl][self.order_anchor[i]]
                         T_hierarchy[j].setdefault(level,{})["transf"] = self.transformation[i]
-                
             if hierarchy[level] > 1:
 #               Reassign the label "previous" to the new results
                 M_prev = M_prev[M]
@@ -978,8 +979,10 @@ class clMDS:
                 sys.stdout.flush()
 #           CASE 1: cluster with 1 anchor point (translation)
             if len(self.order_anchor[i]) == 1:
-                self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
-                self.transformation.append( [0] )
+                x_prev = mds_clusters[ind_anchor[i],:]
+                x_new = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
+                self.sparse_coordinates[ind_anchor[i],:] = x_new
+                self.transformation.append( [[x_new - x_prev]] )
                 continue
             indexes = ind_anchor[i][self.order_anchor[i]]
             X_prev = mds_clusters[indexes,:]
@@ -989,7 +992,7 @@ class clMDS:
 #           CASE 2: cluster with 2 or 3 anchor points (linear transformation + regularization)
             if len(self.order_anchor[i]) in [2,3]:
                 T = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
-                self.transformation.append(T)
+                self.transformation.append( [X_prev[1,:], T, X_new[1,:]] )
                 if len(prev_clusters[i]) in [2,3]:
 #                   Small clusters
                     self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
@@ -1145,7 +1148,7 @@ class clMDS:
 #           Reassign the overwritten attributes
             self.sparsify = sparsify
             self.n_env = len(sparse_list)
-            self.sparse_list = list(sparse_list) 
+            self.sparse_list = sparse_list
 #       Classify them considering the clustering of the sparse set
         cluster_indices = - np.ones(all_env, dtype=int)
         cluster_indices[sparse_list] = self.sparse_cluster_indices
@@ -1179,6 +1182,9 @@ class clMDS:
 #           distance matrix per cluster
             C = np.where(cluster_indices == i)[0] 
             C_sparse = self.sparse_clusters[i]
+            if len(C_sparse) == 1 and len(C) > 1:
+                print('NOTE: Cluster %i has only 1 sparse point. More sparse elements (3 minimum) are ' % i +
+                      'needed to get a proper estimation for the other cluster points.')
             dist_cluster = np.empty([len(C), len(C_sparse)])
             for j in range(0, len(C)):
                 if self.verbose:
@@ -1205,37 +1211,32 @@ class clMDS:
             T = np.linalg.lstsq(dist_sparse - reg, local_mds_sparse, rcond=None)[0]
             self.all_transformations[i]["dist"] = T
             local_coordinates[C] = np.dot(dist_cluster, T)
-
+            ind_sparse = np.array(sparse_list)[C_sparse]
+            local_coordinates[ind_sparse] = local_mds_sparse
 #           Transform the coordinates from local to global space 
-            ref = self.all_transformations[i][1]["anchor"]
-            if len(ref) > 1:
-                ref = ref[1]
-            local_mds_ref = self.local_sparse_coordinates[ref,:]
-            global_mds_ref = self.sparse_coordinates[ref, :]
-            transf_coordinates[C] = local_coordinates[C] - local_mds_ref
+            transf_coordinates[C] = local_coordinates[C]                       
             for level in range(1, len(hierarchy)):
                 T_2d = self.all_transformations[i][level]["transf"]
-                if isinstance(T_2d, np.ndarray):
-#                   Lineal transformation
-                    transf_coordinates[C] = np.dot(transf_coordinates[C], T_2d)         
-                elif T_2d == [0]:
+                if len(T_2d) == 1:
 #                   Sparse cluster with 1 point (translation)
+                    transf_coordinates[C] = transf_coordinates[C] + T_2d[0]
                     continue
+                elif len(T_2d) == 3:
+#                   Linear transformation
+                    ref_prev, T_lin, ref_new = T_2d
+                    transf_coordinates[C] = np.dot(transf_coordinates[C] - ref_prev, T_lin) + ref_new    
                 else:
 #                   Homography
                     ref_prev, T_prev, F, T_new_inv, ref_new = T_2d
-                    if level > 1:
-#                       We need to keep track of the reference anchor point in each step
-                        transf_coordinates[C] = transf_coordinates[C] - ref_prev
+#                   We need to keep track of the reference anchor point in each step
+                    transf_coordinates[C] = transf_coordinates[C] - ref_prev
                     X_prev = np.dot(transf_coordinates[C], T_prev)
                     X_prev_homog = np.concatenate((X_prev, np.ones((len(X_prev),1))), axis=1)
                     X_new_homog =  np.dot(X_prev_homog, F)
                     X_new = X_new_homog/X_new_homog[:,-1][:,None]
                     transf_coordinates[C] = np.dot(X_new[:,:2], T_new_inv)
-                    if hierarchy[level] > 1:
-#                       We need to keep track of the reference anchor point in each step
-                        transf_coordinates[C] = transf_coordinates[C] + ref_new
-            transf_coordinates[C] = transf_coordinates[C] + global_mds_ref
+#                   We need to keep track of the reference anchor point in each step
+                    transf_coordinates[C] = transf_coordinates[C] + ref_new
             if self.verbose:
                 sys.stdout.write('\rEmbedding all data (cluster %i):%6.1f%%' % (i, 100.) )
                 sys.stdout.flush()
