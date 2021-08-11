@@ -92,6 +92,6 @@ def kMedoids(D, k, tmax=100, init_Ms="random", n_iso=None):
         J = np.argmin(D[:,M], axis=1)
         for kappa in range(k):
             C[kappa] = np.where(J==kappa)[0]
-
+    
     # return results
     return M, C

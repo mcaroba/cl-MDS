@@ -761,6 +761,7 @@ class clMDS:
             self.sparse_coordinates = np.zeros((len(self.dist_matrix), 2))
             for newcl in range(0, hierarchy[level]):
                 if self.verbose:
+                    print("")
                     print( '\rResult for new cluster %i' % newcl  )
                 temp_A = [ind_A[i] for i in C[newcl]] 
                 A = np.concatenate( temp_A ).astype('int32')
@@ -864,7 +865,12 @@ class clMDS:
             hull = ConvexHull( mds_anchor[N_anchor[i]:N_anchor[i+1], :], qhull_options=precision )
             vertices = hull.vertices
             if len(vertices) == 3:
-                final_vertices.append(vertices)
+#                final_vertices.append(vertices)
+#               We use the point excluded from the convex hull as the reference one (index 1 in vertices array)
+#               This ensure a more accurate transformation later (regarding the resulting MDS)
+                ref_point = np.setdiff1d(np.arange(0, 4, 1), vertices)
+                final_vertices.append( np.concatenate(([vertices[0]], ref_point, vertices[1:])) )
+                do_linear.append(i)
                 no_pathologies += 0.5
             elif len(vertices) == 4:
 #               Check if there is a pathological quadrilateral (self-intersecting)
@@ -899,62 +905,60 @@ class clMDS:
 #                       Check if the convex hull is a triangle now
                         if len(temp_vertices) == 3:
                             go_ahead = True
-                            temp_pathologies = 0.5
+#                           We use the point excluded from the convex hull as the reference one 
+                            ref_point = np.setdiff1d(np.arange(0, 4, 1), temp_vertices)
+                            temp_vertices = np.concatenate(([vertices[0]], ref_point, vertices[1:]))
+                            temp_pathology = 0.5
                         elif len(temp_vertices) == 4:
                             go_ahead = checkpermutation( ind_anchor[i][temp_vertices], 
                                                          ind_anchor[i], verbose=False )        
-                            temp_pathologies = 1
+                            temp_pathology = 1
                         else: 
 #                           Improve this error message                                                          <-- check this
-                            raise Warning("This is a pathological choice of anchor points, check cluster ", i) 
+                            raise Warning("This is a pathological choice of anchor pts. on cluster ", i) 
                     if n_perm == max_perm:
 #                       Decide if it is better to recompute the best 3 anchor points or                         <-- comment
 #                       make a linear transformation with the current 4 anchor points                           <-- comment
                         final_vertices.append(vertices)
-                        do_linear.append(i)                                                                 
-                        if self.verbose:
-                            print("\rSelf-intersecting quadrilateral on cluster %i, a linear transformation \
-                                     will be used instead." % i)
+                        do_linear.append(i)
                     else:
 #                       The current cluster is now non-pathological
 #                       Check the effects of the new MDS on the convexity of the previous clusters
                         new_vertices = []
                         new_do_linear = []
-                        for j in range(0, i):
+                        new_no_pathologies = 0
+                        for j in range(0, i+1):
                             if len(ind_anchor[j]) <= 3:
-                                temp_pathologies += 1
+                                new_no_pathologies += 1
                                 new_vertices.append(final_vertices[j])
                             else:
                                 h = ConvexHull( temp_mds[N_anchor[j]:N_anchor[j+1], :], qhull_options=precision )
                                 if len(h.vertices) == 3:
-                                    temp_pathologies += 0.5
-                                    new_vertices.append(h.vertices)
+                                    new_no_pathologies += 0.5
+#                                   We use the point excluded from the convex hull as the reference one 
+                                    ref_point = np.setdiff1d(np.arange(0, 4, 1), h.vertices)
+                                    new_vertices.append( np.concatenate(([h.vertices[0]], ref_point,
+                                                          h.vertices[1:])) )
+                                    new_do_linear.append(j)
+#                                    new_vertices.append(h.vertices)
                                 else:
                                     if checkpermutation( ind_anchor[j][h.vertices], ind_anchor[j], 
                                                          verbose=False ):
-                                        temp_pathologies += 1
+                                        new_no_pathologies += 1
                                         new_vertices.append(h.vertices)
                                     else:
                                         new_vertices.append(h.vertices)
                                         new_do_linear.append(j)
-                                        if self.verbose:
-                                            print("\rSelf-intersecting quadrilateral on cluster %i, a \
-                                                   linear transformation will be used instead." % i)
-                        if temp_pathologies > no_pathologies:
-                            no_pathologies = temp_pathologies
+                        if new_no_pathologies > no_pathologies:
+                            no_pathologies = new_no_pathologies
                             mds_anchor = temp_mds
-                            final_vertices = new_vertices + [temp_vertices]
+                            final_vertices = new_vertices
                             do_linear = new_do_linear
                             self.MDS_stress = embedding.stress_
                         else:
 #                           We keep the previous MDS
-#                           Decide if it is better to recompute the best 3 anchor points or                     <-- comment
-#                           make a linear transformation with the current 4 anchor points                       <-- comment
                             final_vertices.append(vertices)
-                            do_linear.append(i)                                                                 
-                            if self.verbose:
-                                print("\rSelf-intersecting quadrilateral on cluster %i, a linear \
-                                         transformation will be used instead." % i)           
+                            do_linear.append(i) 
             else:
 #               We have a problem here (the code is assigning a wrong number of anchor points or its 
 #               global MDS is a perfect line)                                                               
@@ -1006,11 +1010,12 @@ class clMDS:
                     product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[1,:], T)
                     self.sparse_coordinates[prev_clusters[i], :] = product + X_new[1,:]
                 if i in self.do_linear_transf:
-                    print_label.append("linear (self-intersecting quadrilateral)")
+                    print_label.append("linear (using 4 anchor points)")
                 else:
                     print_label.append("linear")
 #           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
             elif len(self.order_anchor[i]) == 4:
+                print(i)
                 axis = np.array([[1,0],[0,0],[0,1]])     
                 T_prev = np.linalg.lstsq(diff_X_prev[:3,:], axis, rcond=None)[0]
                 T_new = np.linalg.lstsq(diff_X_new[:3,:], axis, rcond=None)[0]
@@ -1050,8 +1055,7 @@ class clMDS:
             print(" Cluster   Transformation")
             print("--------------------------")
             for i in range(0, len(clusters)):
-                print(" %3i        %s" % (clusters[i], print_label[i]))
-            print("")            
+                print(" %3i        %s" % (clusters[i], print_label[i]))         
 
 
 #   This is a user friendly function that returns the clusters and medoids of the sparse set
