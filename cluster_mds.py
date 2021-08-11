@@ -1015,7 +1015,6 @@ class clMDS:
                     print_label.append("linear")
 #           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
             elif len(self.order_anchor[i]) == 4:
-                print(i)
                 axis = np.array([[1,0],[0,0],[0,1]])     
                 T_prev = np.linalg.lstsq(diff_X_prev[:3,:], axis, rcond=None)[0]
                 T_new = np.linalg.lstsq(diff_X_new[:3,:], axis, rcond=None)[0]
