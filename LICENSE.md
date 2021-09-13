@@ -1,6 +1,6 @@
 # cl-MDS license
 
-*See the notice at the end of this file for license information on the CUR and kmedoids
+*See the notice at the end of this file for license information on the CUR, scikit-learn and kmedoids
 codes that are shipped with **cl-MDS**.*
 
 Copyright (c) 2020 by Patricia Hernández-León and Miguel A. Caro.
@@ -45,6 +45,8 @@ limit how you use the material.
 **cl-MDS** is shipped with other codes it relies on for some of its functionalities, but
 which are not copyright of the **cl-MDS** authors. They are shipped for the user's convenience
 in accordance with their own licenses/terms of usage:
+
+* **scikit-learn**: the \_mds.py file from the **scikit-learn** code provided under the sklearn\_mds/ directory is Copyright of the scikit-learn developers (2007-2021) and its distributed under its own license in accordance with its license terms. See sklearn\_mds/LICENSE.md for details. Note that the copy distributed with **cl-MDS** has been modified by the authors of **cl-MDS** to add relevant functionality.
 
 * **CUR**: the **CUR** code provided under the cur/ directory is Copyright of Brian Lester
 (2018) and it is distributed under its own license in accordance with its license terms.

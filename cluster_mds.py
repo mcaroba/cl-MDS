@@ -28,14 +28,13 @@
 
 # Import dependencies
 import numpy as np
-from sklearn import manifold
+from sklearn_mds import _mds
 from kmedoids import kmedoids
 from cur import cur
 import random
 import sys
 import itertools
-from scipy.special import comb
-from scipy.spatial import ConvexHull
+from scipy import special, spatial
 
 #************************************************************************************************************
 class clMDS:
@@ -603,7 +602,8 @@ class clMDS:
     def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
                     n_anchor=4, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
-                    n_jobs_anchor=1, verbose_anchor=0, precision_qhull=1e-7, eta=0.):
+                    n_jobs_anchor=1, verbose_anchor=0, weight_cluster_mds=1, weight_anchor_mds=None,
+                    eta=0., precision_qhull=1e-7):
         """
         Parameters:
 
@@ -618,8 +618,9 @@ class clMDS:
         * Clustering (iter_med, tmax, init_medoids, n_iso_med)
         Check kmedoids for further information.
 
-        * Embedding (n_init_*, max_iter_*, n_jobs_*, verbose_*; *=(initial) clusters, anchor (points))
-        Check sklearn.manifold.MDS for additional information
+        * Embedding (n_init_*, max_iter_*, n_jobs_*, verbose_*, weight_*_mds; with 
+                     *=(initial) clusters, anchor (points))
+        Check sklearn_mds and sklearn.manifold.MDS for additional information
 
         * Anchor points (n_anchor, criterion_anchor, precision_qhull)
         This method only supports n_anchor=3,4 (the anchor point selection process and later
@@ -658,41 +659,23 @@ class clMDS:
             ind_medoids, ind_clusters, I = self.cluster_sparsification(n_clusters, init_medoids=init_medoids,
                                                                        n_iso_med=n_iso_med, iter_med=iter_med,
                                                                        tmax=tmax)
+        self.cluster_incoherence = I
         dist_clusters = [self.dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
                          for i in range(0, n_clusters)]      
-#       MDS calculation minimizing the stress
-        embedding = manifold.MDS( n_components=2, dissimilarity="precomputed",
-                                  n_init=n_init_mds_cluster, max_iter=max_iter_cluster,
-                                  n_jobs=n_jobs_cluster, verbose=verbose_cluster )
-        mds_clusters = np.zeros((len(self.dist_matrix),2))
-        if self.verbose:
-            print("")
-        for i in range(0, n_clusters):
-            if self.verbose:
-                sys.stdout.write('\rEmbedding data:%6.1f%%' % (float(i)*100./float(n_clusters)) )
-                sys.stdout.flush()
-            if len(ind_clusters[i]) > 1:
-                mds_clusters[ind_clusters[i]] = embedding.fit_transform(dist_clusters[i])
-            else:
-                mds_clusters[ind_clusters[i]] = np.zeros((1,2)) # avoid sklearn RuntimeWarning
-        if self.verbose:
-            sys.stdout.write('\rEmbedding data:%6.1f%%' % 100. )
-            sys.stdout.flush()
-            print("")
-        
-        self.cluster_incoherence = I
-        self.local_sparse_coordinates = mds_clusters
 
 #       Hierarchy levels
         n_levels = len(hierarchy)
         M_prev = ind_medoids
         C_prev = ind_clusters
 
-        embedding_h = manifold.MDS( n_components=2, dissimilarity="precomputed", n_init=n_init_mds_anchor,
+        embedding_cl = _mds.MDS( n_components=2, dissimilarity="precomputed", n_init=n_init_mds_cluster,
+                                 max_iter=max_iter_cluster, n_jobs=n_jobs_cluster, verbose=verbose_cluster )
+        embedding_h = _mds.MDS( n_components=2, dissimilarity="precomputed", n_init=n_init_mds_anchor,
                                     max_iter=max_iter_anchor, n_jobs=n_jobs_anchor, verbose=verbose_anchor )                       
         H = {}                  
         C_hierarchy = {}
         T_hierarchy = {i:{} for i in range(0, n_clusters)}
+        mds_clusters = np.zeros((len(self.dist_matrix),2))
         for level in range(1, n_levels):
             if self.verbose:
                 print("")
@@ -719,7 +702,7 @@ class clMDS:
                 H[level-1] = {i: np.array([i]) for i in range(0, n_clusters)}
             H[level] = {i: np.concatenate( ([H[level-1][j] for j in C[i]]) ) for i in C}
 
-#           Obtention of anchor points (consider anchor points AND medoids separately)
+#           Obtention of anchor points
             mds_M_prev = mds_clusters[M_prev]
             mds_A = []
             ind_A = []
@@ -729,14 +712,21 @@ class clMDS:
                                       % (float(i)*100./float(hierarchy[level-1])) )
                     sys.stdout.flush()
                 if len(C_prev[i]) <= 3:
+                    if level == 1:
+                        if len(C_prev[i]) > 1:
+                            mds_clusters[C_prev[i]] = embedding_cl.fit_transform(dist_clusters[i])
+                        else:
+                            mds_clusters[C_prev[i]] = np.zeros((1,2)) # avoid sklearn RuntimeWarning
                     mds_A.append( mds_clusters[C_prev[i],:] )
                     ind_A.append( np.array(C_prev[i]) )
                 elif len(C_prev[i]) == 4:
-                    mds = mds_clusters[C_prev[i],:]
-                    h = ConvexHull(mds)
-                    mds_A.append( mds[h.vertices] )
+                    if level == 1:
+                        mds_clusters[C_prev[i]] = embedding_cl.fit_transform(dist_clusters[i])
+                    h = spatial.ConvexHull( mds_clusters[C_prev[i],:] )
+                    mds_A.append( mds_clusters[C_prev[i],:][h.vertices] )
                     ind_A.append( C_prev[i][h.vertices] )
                 else:
+                    """
 #                   Exclude the medoid as a possible anchor point
                     C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
 #                   Choose the procedure for the anchor points calculations depending on cluster length
@@ -748,9 +738,28 @@ class clMDS:
                     mds = anchor_points( n_anchor, mds_clusters[C_prev_nomed,:], method=method_anchor, 
                                          criterion=criterion_anchor )
                     indexes = np.array([np.where(mds_clusters == mds[j])[0][0] for j in range(0, len(mds))])
+                    """
+                    D = self.dist_matrix[np.ix_(C_prev[i], C_prev[i])]
+                    M_soap, C_soap = optim_kmedoids(D, n_anchor, incoherence="tot", init_Ms="isolated",
+                                                    n_iso=4)[:2]
+                    A_soap = []
+                    for j in C_soap:
+                        medoids = np.setdiff1d(M_soap, M_soap[j]) # M_soap # 
+                        a = np.argmax( np.sum(D[np.ix_(C_soap[j], medoids)], axis=1) )
+                        A_soap.append( C_soap[j][a] )
+                        print(j, len(C_soap[j]), M_soap[j], medoids, A_soap[j])
+                    indexes = C_prev[i][A_soap]
+#                   Local weights
+                    if level == 1: 
+                        W_local = np.ones( dist_clusters[i].shape )
+                        temp = [np.where(C_prev[i] == j)[0][0] for j in list(indexes) + [M_prev[i]]]
+                        W_local[temp] = weight_cluster_mds
+                        W_local[:,temp] = weight_cluster_mds
+                        W_local[np.ix_(temp, temp)] = weight_cluster_mds**2
+                        mds_clusters[C_prev[i]] = embedding_cl.fit_transform(dist_clusters[i], weights=W_local)
 #                   Order of the anchor points on the previous level
-                    h = ConvexHull(mds)
-                    mds_A.append( mds[h.vertices] )
+                    h = spatial.ConvexHull( mds_clusters[indexes] )
+                    mds_A.append( mds_clusters[indexes][h.vertices] )
                     ind_A.append( indexes[h.vertices] )
             if self.verbose:
                 sys.stdout.write('\rObtaining anchor points:%6.1f%%' % 100. )
@@ -769,10 +778,42 @@ class clMDS:
                     self.sparse_coordinates[A,:] = np.zeros((1,2)) # avoid sklearn RuntimeWarning   
                     self.order_anchor = [[0]]
                     self.transformation = [[np.zeros(2)]]
+                    print('Direct transformation (just 1 anchor point)')
                 else:
                     dist_anchor = self.dist_matrix[np.ix_(A, A)]
+#                   MDS weight for intracluster distances
+                    W = weight_anchor_mds
+                    if weight_anchor_mds is not None:
+                        if isinstance(weight_anchor_mds, (int, float)):
+                            w = weight_anchor_mds
+                        elif isinstance(weight_anchor_mds, (list, np.ndarray)):
+                            if len(weight_anchor_mds) == 1:
+                                w = weight_anchor_mds[0]
+                            elif len(weight_anchor_mds) == len(self.hierarchy)-1:
+                                w = weight_anchor_mds[level-1]
+                            else:
+                                raise Exception('The length of the list/array of weights does not coincide ' +
+                                                'with the number of hierarchy levels, please correct that.' +
+                                                'Otherwise provide one value or use None (default).')
+                        elif isinstance(weight_anchor_mds, dict):
+#                           Nested dict. such as { 0:{ cl0:w0, cl1:w1, ..., 'others':w }, ..., n_levels-1:{ ... } }
+#                           where cl0, cl1, ... are specific clusters with different weights w1, w2, ... from w
+                            if newcl in weight_anchor_mds[level-1].keys():
+                                w = weight_anchor_mds[level-1][newcl]
+                                if not isinstance(w, (int, float)):
+                                    print('Cluster %i (level %i) weight is not a float/int, 1 will be used instead'
+                                          % (newcl, level-1))
+                                    w = 1.
+                            else:
+                                w = weight_anchor_mds[level-1]['others']
+                        W = np.ones(dist_anchor.shape)
+                        l=0
+                        for a in temp_A:
+                            I = np.arange(l, l+len(a), 1)
+                            W[np.ix_(I,I)] = w
+                            l += len(a)
+#                   Additional weight using medoids kernel for intercluster distances
                     if hasattr(self, 'descriptor_type') and eta != 0:
-#                       Distances can have an additional weigth using medoids kernel
                         weight_med = np.eye(len(A))
                         l=0
                         new_ind=[]
@@ -789,13 +830,13 @@ class clMDS:
                                 weight_med[np.ix_(new_ind[j], new_ind[i])] = prod
                         dist_anchor = np.sqrt(1 + (dist_anchor**2 -1)*weight_med**eta)
 
-                    mds_anchor = embedding_h.fit_transform(dist_anchor)
+                    mds_anchor = embedding_h.fit_transform(dist_anchor, weights=W)
                     self.MDS_stress = embedding_h.stress_
 #                   Convexity check per cluster for their new MDS
                     embedding_h.set_params(n_init=1)
                     prev_clusters = [C_prev[i] for i in C[newcl]]
                     self.convexity_check( C[newcl], prev_clusters, temp_A, dist_anchor, mds_anchor,
-                                          embedding_h, precision = precision_qhull ) 
+                                          embedding_h, W_mds=W, precision = precision_qhull ) 
                     embedding_h.set_params(n_init=n_init_mds_anchor)
 #                   Transformation from previous level to the new one
                     self.transform_2d( C[newcl], prev_clusters, temp_A, mds_clusters )
@@ -818,6 +859,7 @@ class clMDS:
         self.has_clmds = True
         self.sparse_clusters = ind_clusters
         self.sparse_medoids = ind_medoids.astype(int)
+        self.local_sparse_coordinates = mds_clusters
         self.all_transformations = T_hierarchy
 
         sparse_cluster_indices = np.empty(len(self.dist_matrix), dtype=int)
@@ -843,7 +885,7 @@ class clMDS:
 #   This method checks the presence of pathological arrangements of anchor points in the MDS (i.e. non-convex
 #   and self-intersecting results) and improves the final MDS solution (free of pathologies)
     def convexity_check(self, clusters, prev_clusters, ind_anchor, dist_anchor, 
-                        mds_anchor, embedding, max_perm=6, precision=None): 
+                        mds_anchor, embedding, max_perm=6, W_mds=None, precision=None): 
         no_pathologies = 0
         final_vertices = []
         do_linear = []
@@ -862,10 +904,9 @@ class clMDS:
                 no_pathologies += 1
                 continue
 #           Check if there is a pathological quadrilateral (non-convex)
-            hull = ConvexHull( mds_anchor[N_anchor[i]:N_anchor[i+1], :], qhull_options=precision )
+            hull = spatial.ConvexHull( mds_anchor[N_anchor[i]:N_anchor[i+1], :], qhull_options=precision )
             vertices = hull.vertices
             if len(vertices) == 3:
-#                final_vertices.append(vertices)
 #               We use the point excluded from the convex hull as the reference one (index 1 in vertices array)
 #               This ensure a more accurate transformation later (regarding the resulting MDS)
                 ref_point = np.setdiff1d(np.arange(0, 4, 1), vertices)
@@ -898,9 +939,8 @@ class clMDS:
                             perm_cluster[[0,1]] = perm_cluster[[1,0]]
                         init_embed = temp_mds
                         init_embed[N_anchor[i]:N_anchor[i+1], :] = perm_cluster
-                        new_embed = embedding.fit(dist_anchor, init=init_embed)
-                        temp_mds = new_embed.embedding_
-                        hull = ConvexHull( temp_mds[N_anchor[i]:N_anchor[i+1], :], qhull_options=precision )
+                        temp_mds = embedding.fit_transform(dist_anchor, init=init_embed, weights=W_mds)
+                        hull = spatial.ConvexHull( temp_mds[N_anchor[i]:N_anchor[i+1], :], qhull_options=precision )
                         temp_vertices = hull.vertices
 #                       Check if the convex hull is a triangle now
                         if len(temp_vertices) == 3:
@@ -932,7 +972,8 @@ class clMDS:
                                 new_no_pathologies += 1
                                 new_vertices.append(final_vertices[j])
                             else:
-                                h = ConvexHull( temp_mds[N_anchor[j]:N_anchor[j+1], :], qhull_options=precision )
+                                h = spatial.ConvexHull( temp_mds[N_anchor[j]:N_anchor[j+1], :], 
+                                                        qhull_options=precision )
                                 if len(h.vertices) == 3:
                                     new_no_pathologies += 0.5
 #                                   We use the point excluded from the convex hull as the reference one 
@@ -940,7 +981,6 @@ class clMDS:
                                     new_vertices.append( np.concatenate(([h.vertices[0]], ref_point,
                                                           h.vertices[1:])) )
                                     new_do_linear.append(j)
-#                                    new_vertices.append(h.vertices)
                                 else:
                                     if checkpermutation( ind_anchor[j][h.vertices], ind_anchor[j], 
                                                          verbose=False ):
@@ -1476,20 +1516,20 @@ def anchor_points(N, points, method=None, n_random=None, criterion="area", preci
         return points
     s_opt = 0
     anchor_p = points[:N]
-    n_comb = comb(len(points), N, exact=True)
+    n_comb = special.comb(len(points), N, exact=True)
     indexes = np.arange(0, len(points),1)
 #   Generate vertices and their possible combinations
     precision_opt = 'E'+str(precision)
-    h = ConvexHull(points, qhull_options=precision_opt)
+    h = spatial.ConvexHull(points, qhull_options=precision_opt)
     external_ind = h.vertices
     if len(external_ind) <= N:
         return points[external_ind]
     if method == "optimized":
-        h = ConvexHull(points, qhull_options=precision_opt)
+        h = spatial.ConvexHull(points, qhull_options=precision_opt)
         external_ind = h.vertices
         while len(external_ind) < 0.7*len(points) and len(external_ind) < 30:
             temp = points[ ~np.isin(indexes, external_ind), :]
-            h = ConvexHull(temp, qhull_options=precision_opt)
+            h = spatial.ConvexHull(temp, qhull_options=precision_opt)
             temp_vert = [np.where(pt == points)[0][0] for pt in temp[h.vertices,:]]
             external_ind = np.concatenate((external_ind, temp_vert))
         vertices = itertools.combinations(np.sort(external_ind), N)
@@ -1510,14 +1550,14 @@ def anchor_points(N, points, method=None, n_random=None, criterion="area", preci
         temp_anchor = points[vert,:]
         if criterion == "area":
             try:
-                h = ConvexHull(temp_anchor, qhull_options=precision_opt)
+                h = spatial.ConvexHull(temp_anchor, qhull_options=precision_opt)
             except:
                 continue
             s = h.volume
             temp_anchor = temp_anchor[h.vertices] 
         elif criterion == "points":
             try:
-                h = ConvexHull(temp_anchor, qhull_options=precision_opt)
+                h = spatial.ConvexHull(temp_anchor, qhull_options=precision_opt)
             except:
                 continue
             temp_ind = indexes[ ~np.isin(indexes, vert) ]
@@ -1539,7 +1579,7 @@ def points_in_polygon(N, vertices, other_points, qhull_opt='QbB'):
         print("You need to provide %i vertices exactly" % N)
     for point in other_points:
         temp = np.concatenate((vertices, point[None,:]), axis=0)
-        h = ConvexHull(temp, qhull_options=qhull_opt)
+        h = spatial.ConvexHull(temp, qhull_options=qhull_opt)
         if len(h.vertices) == N:
             if set(range(0,N)) <= set(h.vertices):  
                 s += 1
