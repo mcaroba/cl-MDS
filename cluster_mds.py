@@ -292,9 +292,14 @@ class clMDS:
                     self.sparse_list = sorted(sparse_list)
                 elif self.sparsify == "cur":
                     sparse_list = list(range(n_env))
-            else:
+            elif self.do_species is True:
 #               Added to avoid possible crushes in other methods
                 self.sparse_list = list(range(n_env))
+            else:
+                sparse_list = []
+                for z in species:
+                    sparse_list += list(np.where( np.array(species_list) == z )[0])
+                self.sparse_list = sorted(sparse_list)
 
 #           Descriptors
             if descriptor == "quippy_soap":
@@ -467,17 +472,20 @@ class clMDS:
         elif len(self.descriptor) < self.all_env:
             self.build_descriptor()
         self.build_dist_matrix()
+        dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
 
         sparse_list = self.sparse_list
-#       Compute the clustering with the initial sparse set
-        M, C, I = optim_kmedoids( self.dist_matrix, n_clusters, incoherence="rel", n_iter=iter_med, 
+#       Compute the clustering with the initial sparse set (considering only unique entries)
+        M, C, I = optim_kmedoids( dist_matrix, n_clusters, incoherence="rel", n_iter=iter_med, 
                                   tmax=tmax, init_Ms=init_medoids, n_iso=n_iso_med, verbose=self.verbose)
+#       Change this part (do not take into account the repeated entries to add new sparse entries)            <-- comment
         n_C = []
         C_incomplete = []
         C_indices = np.zeros(self.n_env, dtype=int)
         for i in range(0, n_clusters):
-            n_C.append(len(C[i]))
-            C_indices[C[i]] = i
+            all_Ci = np.concatenate(( [np.where(ind_dist == j)[0] for j in C[i]] ))
+            n_C.append(len(all_Ci))
+            C_indices[all_Ci] = i
             if n_C[i] < n_sparse:
                 C_incomplete.append(i)
         if C_incomplete:
@@ -487,7 +495,7 @@ class clMDS:
 #               Assign each non_sparse point to a cluster
                 dist_med = np.zeros(n_clusters)
                 for j in range(0, n_clusters):
-                    med = sparse_list[M[j]]
+                    med = sparse_list[np.unique(ind_dist)][M[j]]
                     prod = np.dot(self.descriptor[i], self.descriptor[med])**self.zeta 
                     if prod < 1.:
                         dist_med[j] =  np.sqrt(1. - prod)
@@ -524,12 +532,16 @@ class clMDS:
                     C_indices = np.array([ind for i, ind in enumerate(C_indices) if i not in out_sparse])
             new_indices = np.argsort(sparse_list)
             C_indices = C_indices[ new_indices ]
-            M = np.array([np.where(new_indices == med)[0][0] for med in M])
-            C = {i: np.where(C_indices == i)[0] for i in range(0, n_clusters) } 
             self.n_env = len(sparse_list)
             self.sparse_list = sorted(sparse_list)
-            self.build_dist_matrix()
             self.n_sparse = n_sparse
+            self.build_dist_matrix()
+            dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
+            new_indices = new_indices[ind_dist]
+            M = np.array([np.where(new_indices == med)[0][0] for med in M])
+#           Change this part                                                                              <-- comment
+            C = {i: np.where(C_indices == i)[0] for i in range(0, n_clusters) }            
+
         else:
             print("The sparse set already fulfils your n_sparse request.")  
 
@@ -544,6 +556,7 @@ class clMDS:
                             specific_n_iso=None, I_min="tot", n_ranking=15):
         if not self.has_dist_matrix:
             self.build_dist_matrix()
+        dist_matrix, ind_dist = unique_rows_matrix(self.dist_matrix)
 
         from sklearn.metrics import silhouette_samples, silhouette_score
 
@@ -559,7 +572,7 @@ class clMDS:
         else:
             param_iso = list(range(1, n_cluster_max+1))
 
-        C_ind = np.empty( len(self.dist_matrix), dtype=int )
+        C_ind = np.empty( len(dist_matrix), dtype=int )
         I_rel = 10*np.ones( (len(N_cl), len(param_iso)) )
         I_tot = np.ones( (len(N_cl), len(param_iso)) )*10**4
         average_sil = -10*np.ones( (len(N_cl), len(param_iso)) )
@@ -568,14 +581,14 @@ class clMDS:
             for m, param in enumerate(param_iso):
                 if param > n:
                     break
-                M, C, I_rel[ind,m] = optim_kmedoids( self.dist_matrix, n, incoherence="rel", 
-                                             init_Ms=specific_Ms, n_iso=param)
+                M, C, I_rel[ind,m] = optim_kmedoids(dist_matrix, n, incoherence="rel", init_Ms=specific_Ms, 
+                                                    n_iso=param)
                 I_tot[ind,m] = 0.
                 for i in range(0, n):
                     C_ind[C[i]] = i
-                    I_tot[ind,m] += np.sum(self.dist_matrix[M[i]][C[i]])
-                average_sil[ind,m] = silhouette_score(self.dist_matrix, C_ind, metric="precomputed")
-                sil_values = silhouette_samples(self.dist_matrix, C_ind, metric="precomputed")
+                    I_tot[ind,m] += np.sum(dist_matrix[M[i]][C[i]])
+                average_sil[ind,m] = silhouette_score(dist_matrix, C_ind, metric="precomputed")
+                sil_values = silhouette_samples(dist_matrix, C_ind, metric="precomputed")
                 print(" %2i     %2i    |  %2.4f  %2.4f  |    %2.4f" % (n, param, I_rel[ind,m], I_tot[ind,m],
                                                                              average_sil[ind,m]))
                 for i in range(0, n):
@@ -600,7 +613,7 @@ class clMDS:
 #   This method clusters the data and produces the embedded 2-dimensional coordinates
 #   Make sure these are sensible defaults!!!!!!                                                              <-- comment
     def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
-                    n_init_mds_cluster=10, max_iter_cluster=200, n_jobs_cluster=1, verbose_cluster=0,
+                    n_init_mds_cluster=10, max_iter_cluster=300, n_jobs_cluster=1, verbose_cluster=0,
                     n_anchor=4, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
                     n_jobs_anchor=1, verbose_anchor=0, weight_cluster_mds=1, weight_anchor_mds=None,
                     eta=0., precision_qhull=1e-7):
@@ -652,15 +665,19 @@ class clMDS:
         if not self.sparsify_per_cluster: 
             if not self.has_dist_matrix:
                 self.build_dist_matrix() 
-            ind_medoids, ind_clusters, I = optim_kmedoids( self.dist_matrix, n_clusters, incoherence="rel",
+            dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
+            ind_medoids, ind_clusters, I = optim_kmedoids( dist_matrix, n_clusters, incoherence="rel",
                                                            n_iter=iter_med, tmax=tmax, init_Ms=init_medoids,
                                                            n_iso=n_iso_med, verbose=self.verbose )
         else: 
-            ind_medoids, ind_clusters, I = self.cluster_sparsification(n_clusters, init_medoids=init_medoids,
-                                                                       n_iso_med=n_iso_med, iter_med=iter_med,
-                                                                       tmax=tmax)
+            ind_medoids, ind_clusters, I = cluster_sparsification(n_clusters, init_medoids=init_medoids,
+                                                                  n_iso_med=n_iso_med, iter_med=iter_med,
+                                                                  tmax=tmax)
+#           Maybe return the unique matrix directly from cluster_sparsification                              <-- comment
+            dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
+
         self.cluster_incoherence = I
-        dist_clusters = [self.dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
+        dist_clusters = [dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
                          for i in range(0, n_clusters)]      
 
 #       Hierarchy levels
@@ -672,10 +689,9 @@ class clMDS:
                                  max_iter=max_iter_cluster, n_jobs=n_jobs_cluster, verbose=verbose_cluster )
         embedding_h = _mds.MDS( n_components=2, dissimilarity="precomputed", n_init=n_init_mds_anchor,
                                     max_iter=max_iter_anchor, n_jobs=n_jobs_anchor, verbose=verbose_anchor )                       
-        H = {}                  
-        C_hierarchy = {}
+        H = {}
         T_hierarchy = {i:{} for i in range(0, n_clusters)}
-        mds_clusters = np.zeros((len(self.dist_matrix),2))
+        mds_clusters = np.zeros((len(dist_matrix),2))
         for level in range(1, n_levels):
             if self.verbose:
                 print("")
@@ -684,17 +700,16 @@ class clMDS:
 #           Check the data reorganization needed for this new hierarchy level
             if hierarchy[level] > 1:
 #               Assign the clusters of previous level to the current ones
-                D = self.dist_matrix[np.ix_(M_prev, M_prev)]
+                D = dist_matrix[np.ix_(M_prev, M_prev)]
                 M, C = optim_kmedoids( D, hierarchy[level], incoherence="tot", n_iter=500, init_Ms="isolated",
                                        n_iso=hierarchy[level], verbose=self.verbose )[:2]
 #               Obtain a dictionary with all the indexes of each new cluster
                 C_new = { newcl: np.concatenate( [C_prev[i] for i in C[newcl]] ) 
                                                             for newcl in range(0, hierarchy[level]) }
-                C_hierarchy[level] = C_new
             elif hierarchy[level] == 1:
 #               No clustering (consider all data points)
                 C = { 0: np.arange(hierarchy[level-1]) }
-                C_new = { 0: np.arange(len(self.dist_matrix)) }
+                C_new = { 0: np.arange(len(dist_matrix)) }
             else:
                 raise Exception("There is a wrong entry in the hierarchy parameter, it must have \
                                  non-zero integers only (e.g. hierarchy=[8,1])")
@@ -726,28 +741,14 @@ class clMDS:
                     mds_A.append( mds_clusters[C_prev[i],:][h.vertices] )
                     ind_A.append( C_prev[i][h.vertices] )
                 else:
-                    """
-#                   Exclude the medoid as a possible anchor point
-                    C_prev_nomed = np.setdiff1d(C_prev[i], M_prev[i])
-#                   Choose the procedure for the anchor points calculations depending on cluster length
-                    if len(C_prev[i]) - 1 < 20:
-                        method_anchor = None
-                    else:                                                       
-                        method_anchor = "optimized"
-#                   MDS and indexes of anchor points in previous level
-                    mds = anchor_points( n_anchor, mds_clusters[C_prev_nomed,:], method=method_anchor, 
-                                         criterion=criterion_anchor )
-                    indexes = np.array([np.where(mds_clusters == mds[j])[0][0] for j in range(0, len(mds))])
-                    """
-                    D = self.dist_matrix[np.ix_(C_prev[i], C_prev[i])]
+                    D = dist_matrix[np.ix_(C_prev[i], C_prev[i])]
                     M_soap, C_soap = optim_kmedoids(D, n_anchor, incoherence="tot", init_Ms="isolated",
                                                     n_iso=4)[:2]
                     A_soap = []
-                    for j in C_soap:
+                    for j in C_soap:                                               
                         medoids = np.setdiff1d(M_soap, M_soap[j]) # M_soap # 
                         a = np.argmax( np.sum(D[np.ix_(C_soap[j], medoids)], axis=1) )
                         A_soap.append( C_soap[j][a] )
-                        print(j, len(C_soap[j]), M_soap[j], medoids, A_soap[j])
                     indexes = C_prev[i][A_soap]
 #                   Local weights
                     if level == 1: 
@@ -765,9 +766,11 @@ class clMDS:
                 sys.stdout.write('\rObtaining anchor points:%6.1f%%' % 100. )
                 sys.stdout.flush()
                 print("")
+            if level == 1:
+                self.local_sparse_coordinates = mds_clusters[ind_dist_inv]
          
 #           MDS of anchor points on the new level and their transformations
-            self.sparse_coordinates = np.zeros((len(self.dist_matrix), 2))
+            self.sparse_coordinates = np.zeros((len(dist_matrix), 2))
             for newcl in range(0, hierarchy[level]):
                 if self.verbose:
                     print("")
@@ -778,9 +781,9 @@ class clMDS:
                     self.sparse_coordinates[A,:] = np.zeros((1,2)) # avoid sklearn RuntimeWarning   
                     self.order_anchor = [[0]]
                     self.transformation = [[np.zeros(2)]]
-                    print('Direct transformation (just 1 anchor point)')
+                    print('Trivial transformation (just 1 anchor point)')
                 else:
-                    dist_anchor = self.dist_matrix[np.ix_(A, A)]
+                    dist_anchor = dist_matrix[np.ix_(A, A)]
 #                   MDS weight for intracluster distances
                     W = weight_anchor_mds
                     if weight_anchor_mds is not None:
@@ -844,7 +847,9 @@ class clMDS:
                 for i, cl in enumerate(C[newcl]):
                     for j in H[level-1][cl]:
                         T_hierarchy[j].setdefault(level,{})["cluster"] = newcl
-                        T_hierarchy[j].setdefault(level,{})["anchor"] = ind_A[cl][self.order_anchor[i]]
+                        temp_anchor = ind_A[cl][self.order_anchor[i]]
+                        print(temp_anchor)
+                        T_hierarchy[j].setdefault(level,{})["anchor"] = ind_dist[temp_anchor]
                         T_hierarchy[j].setdefault(level,{})["transf"] = self.transformation[i]
             if hierarchy[level] > 1:
 #               Reassign the label "previous" to the new results
@@ -852,33 +857,25 @@ class clMDS:
                 C_prev = C_new
                 mds_clusters = self.sparse_coordinates
 
-#       These indices refer to the dist_matrix; we need to make sure that the information required to retrieve  <-- comment
-#       the atomic structures from the original data base are consistent with the sparsification technique used <-- comment
-#       We should also give the option to output the mds coordinates to the xyz file and generate carved xyz    <-- comment
-#       structures around the medoids for plotting                                                              <-- comment
+#       These indices refer to the original dist_matrix; we need to make sure that the information required   <-- comment
+#       to retrieve the atomic structures from the original data base are consistent with the sparsification  <-- comment
+#       technique used
         self.has_clmds = True
-        self.sparse_clusters = ind_clusters
-        self.sparse_medoids = ind_medoids.astype(int)
-        self.local_sparse_coordinates = mds_clusters
+        self.sparse_medoids = ind_dist[ind_medoids.astype(int)]
+        self.sparse_coordinates = self.sparse_coordinates[ind_dist_inv]
         self.all_transformations = T_hierarchy
 
+        sparse_clusters = {}
         sparse_cluster_indices = np.empty(len(self.dist_matrix), dtype=int)
         for i in range(0, hierarchy[0]):
-             cluster = self.sparse_clusters[i]
-             sparse_cluster_indices[cluster] = i
+            temp = [np.where(ind_dist_inv == j)[0] for j in ind_clusters[i]]
+            cluster = np.sort( np.concatenate((temp)) )
+            sparse_clusters[i] = cluster
+            sparse_cluster_indices[cluster] = i
 
+        self.sparse_clusters = sparse_clusters
         self.sparse_cluster_indices = sparse_cluster_indices
 
-        sparse_int_cluster_indices = {}
-        if n_levels > 2:
-            for level in range(1, n_levels-1):
-                int_indices = np.empty(len(self.dist_matrix), dtype=int)
-                for i in range(0, hierarchy[level]):
-                    cluster = C_hierarchy[level][i]
-                    int_indices[cluster] = i                    
-                sparse_int_cluster_indices[level] = int_indices
-
-            self.sparse_int_cluster_indices = sparse_int_cluster_indices
 
 
 
@@ -899,8 +896,8 @@ class clMDS:
                 sys.stdout.write( '\rChecking convexity:%6.1f%%' % (float(i)*100./float(len(clusters)))  )
                 sys.stdout.flush()
             N_anchor[i+1] = N_anchor[i] + len(ind_anchor[i])
-            if len(prev_clusters[i]) <= 3:
-                final_vertices.append(np.arange(0, len(prev_clusters[i]), 1))
+            if len(ind_anchor[i]) <= 3:
+                final_vertices.append(np.arange(0, len(ind_anchor[i]), 1))
                 no_pathologies += 1
                 continue
 #           Check if there is a pathological quadrilateral (non-convex)
@@ -1467,6 +1464,35 @@ class clMDS:
 #************************************************************************************************************
 #******************************************* Suporting functions ********************************************
 
+# This method find the repeated rows on a matrix M (within a tolerance) 
+def unique_rows_matrix(M, tol=1e-09, return_indices=False):
+    n = len(M)
+    I = np.arange(0, n, 1)
+    ind_unique = np.unique( np.where((M + np.eye(n)) == 0.)[0] )
+    if len(ind_unique) > 0: 
+        ind_tol_u = [ind_unique[0]]
+        M_tol_u = M[ind_unique][0][None,:]
+        for i, row in zip(ind_unique, M[ind_unique]):
+            for j, row_u in zip(ind_tol_u, M_tol_u):
+                if np.allclose(row, row_u, atol=tol, rtol=0):
+                    I[i] = j
+                    break
+            else:
+                ind_tol_u = np.append(ind_tol_u, i)
+                M_tol_u = np.concatenate((M_tol_u, row[None,:]), axis=0)
+    M_unique = M[np.ix_(np.unique(I), np.unique(I))]
+#   Return the matrix with unique entries and the unique row indexes
+    if not return_indices:
+        return M_unique, np.unique(I)
+#   Also return the indices to reconstruct the original matrix from the unique one
+    I_inv = np.zeros(n, dtype=int)
+    I_inv[np.unique(I)] = np.arange(0, len(M_unique), 1)
+    for i in np.arange(0, len(M_unique), 1):
+        temp = np.where(I == np.unique(I)[i])[0]
+        I_inv[temp] = i
+    return M_unique, np.unique(I), I_inv
+
+
 # This method chooses the kmedoids clustering with minimum intra-cluster incoherence (relative or total)
 def optim_kmedoids(D, n_clusters, incoherence="rel", n_iter=100,  tmax=100, 
                    init_Ms="random", n_iso=None, verbose=False):
@@ -1498,8 +1524,8 @@ def optim_kmedoids(D, n_clusters, incoherence="rel", n_iter=100,  tmax=100,
     return M, C, I
 
 
-# Given a dataset, this method choose the N points corresponding to the N vertices of the polygon that fulfils  
-# the selected criterion (area, number of points)
+# Given the 2D coordinates of a dataset, this method chooses the N points corresponding to the N vertices  
+# of the polygon that fulfils the selected criterion (area, number of points)
 def anchor_points(N, points, method=None, n_random=None, criterion="area", precision=1.e-8):
     """
     3 available methods: 
