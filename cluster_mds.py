@@ -741,15 +741,19 @@ class clMDS:
                     mds_A.append( mds_clusters[C_prev[i],:][h.vertices] )
                     ind_A.append( C_prev[i][h.vertices] )
                 else:
-                    D = dist_matrix[np.ix_(C_prev[i], C_prev[i])]
-                    M_soap, C_soap = optim_kmedoids(D, n_anchor, incoherence="tot", init_Ms="isolated",
-                                                    n_iso=4)[:2]
-                    A_soap = []
-                    for j in C_soap:                                               
-                        medoids = np.setdiff1d(M_soap, M_soap[j]) # M_soap # 
-                        a = np.argmax( np.sum(D[np.ix_(C_soap[j], medoids)], axis=1) )
-                        A_soap.append( C_soap[j][a] )
-                    indexes = C_prev[i][A_soap]
+#                   Choose the procedure for the anchor points calculations depending on cluster length
+                    if len(C_prev[i]) - 1 < 20:
+                        method_anchor = None
+                        param_method = 0
+                    else:                                                       
+                        method_anchor = "percentile"
+                        param_method = 70
+#                   MDS and indexes of anchor points in previous level
+                    ind_med = np.where(M_prev[i] == C_prev[i])[0][0]
+                    ind_anc = anchor_points_ndim( n_anchor, dist_matrix[np.ix_(C_prev[i],C_prev[i])], 
+                                                  method=method_anchor, param_method=param_method,
+                                                  ref_point=ind_med )
+                    indexes = C_prev[i][ind_anc]
 #                   Local weights
                     if level == 1: 
                         W_local = np.ones( dist_clusters[i].shape )
@@ -1524,9 +1528,66 @@ def optim_kmedoids(D, n_clusters, incoherence="rel", n_iter=100,  tmax=100,
     return M, C, I
 
 
-# Given the 2D coordinates of a dataset, this method chooses the N points corresponding to the N vertices  
+# Given the distance matrix of a dataset embedded in a n-dim space, this method returns the indexes of 
+# the points corresponding to the N vertices (N=3,4) of the N-dim polytope that has max. volume
+def anchor_points_ndim(N, dist_points, method=None, param_method=None, ref_point=None):
+    import math
+    indexes = np.arange(0,len(dist_points),1)
+    if ref_point is not None:
+        indexes = np.setdiff1d(indexes, [ref_point])
+    if len(indexes) <= N:
+        return indexes
+    V_opt = 0
+    ind_anchor = np.arange(0,N,1)
+#   Generate vertices and their possible combinations
+    if method=='percentile':
+        if param_method is None or ref_point is None:
+            raise Exception("You need to provide a percentile (param_method) and a reference point " +
+                            "(ref_point) for its computation.")
+        percent = param_method
+        ind_anchor_ext = []
+        while len(ind_anchor_ext) < 30 and len(ind_anchor_ext) < 0.7*len(indexes):
+            dist_ref = dist_points[ref_point,:] 
+            dist_ref = np.delete(dist_ref, ref_point)
+            mask_percent = (dist_ref > np.percentile(dist_ref, percent))
+            ind_anchor_ext = indexes[mask_percent]
+            percent-=10
+        vertices = itertools.combinations(ind_anchor_ext, N)
+    elif method == "random":
+        if param_method is None:
+            raise Exception("You need to provide a number of random combinations of vertices (param_method)")
+        n_comb = special.comb(len(indexes), N, exact=True) 
+        n_random = int(param_method)
+        vertices = itertools.combinations(indexes, N)
+        if n_random < n_comb:
+            rand_mask = np.zeros(n_comb, dtype=int)
+            rand_vertices = random.sample(range(0, n_comb), n_random)
+            rand_mask[rand_vertices] = 1
+            vertices = list(itertools.compress(vertices, rand_mask))
+    else:
+        vertices = itertools.combinations(indexes, N)
+#   Obtain the best polytope considering the chosen criterion
+    for vert in vertices:
+        dist_vert = dist_points[np.ix_(vert, vert)]
+#       Volumen of a N-dim simplex using Cayley-Menger determinant
+        A = np.vstack(( np.hstack(( dist_vert, np.ones((N,1)) )), np.ones((1,N+1)) ))
+        A[-1,-1] = 0
+        CM_det = np.linalg.det(A)
+        if np.allclose(CM_det, 0.):
+            CM_det = 0.
+        V = np.sqrt((-1)**(N)*CM_det/2**(N-1))/math.factorial(N-1)
+        if V == 0:
+            continue
+        if V > V_opt:
+            V_opt = V
+            ind_anchor = vert
+
+    return np.array(ind_anchor)
+
+
+# Given the 2-dim coordinates of a dataset, this method chooses the N points corresponding to the N vertices  
 # of the polygon that fulfils the selected criterion (area, number of points)
-def anchor_points(N, points, method=None, n_random=None, criterion="area", precision=1.e-8):
+def anchor_points_2dim(N, points, method=None, n_random=None, criterion="area", precision=1.e-8):
     """
     3 available methods: 
         None (default) = use all possible combinations (without repetition) of the points given 
