@@ -745,20 +745,20 @@ class clMDS:
                     if len(C_prev[i]) - 1 < 20:
                         method_anchor = None
                         param_method = 0
-                        limit = 0
+                        limit_max = 0
                     elif len(C_prev[i]) - 1 < 114:
                         method_anchor = "percentile"
                         param_method = 70
-                        limit = int(0.7*len(C_prev[i]))
+                        limit_max = int(0.7*len(C_prev[i]))
                     else:
                         method_anchor = "percentile"
-                        param_method = 95
-                        limit = 80
+                        param_method = 80
+                        limit_max = 100
 #                   MDS and indexes of anchor points in previous level
                     ind_med = np.where(M_prev[i] == C_prev[i])[0][0]
                     ind_anc = anchor_points_ndim( n_anchor, dist_matrix[np.ix_(C_prev[i],C_prev[i])], 
                                                   method=method_anchor, param_method=param_method,
-                                                  ref_point=ind_med, n_limit=limit )
+                                                  ref_point=ind_med, n_max=limit_max )
                     indexes = C_prev[i][ind_anc]
 #                   Local weights
                     if level == 1: 
