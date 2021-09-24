@@ -745,14 +745,20 @@ class clMDS:
                     if len(C_prev[i]) - 1 < 20:
                         method_anchor = None
                         param_method = 0
-                    else:                                                       
+                        limit = 0
+                    elif len(C_prev[i]) - 1 < 114:
                         method_anchor = "percentile"
                         param_method = 70
+                        limit = int(0.7*len(C_prev[i]))
+                    else:
+                        method_anchor = "percentile"
+                        param_method = 95
+                        limit = 80
 #                   MDS and indexes of anchor points in previous level
                     ind_med = np.where(M_prev[i] == C_prev[i])[0][0]
                     ind_anc = anchor_points_ndim( n_anchor, dist_matrix[np.ix_(C_prev[i],C_prev[i])], 
                                                   method=method_anchor, param_method=param_method,
-                                                  ref_point=ind_med )
+                                                  ref_point=ind_med, n_limit=limit )
                     indexes = C_prev[i][ind_anc]
 #                   Local weights
                     if level == 1: 
@@ -852,7 +858,6 @@ class clMDS:
                     for j in H[level-1][cl]:
                         T_hierarchy[j].setdefault(level,{})["cluster"] = newcl
                         temp_anchor = ind_A[cl][self.order_anchor[i]]
-                        print(temp_anchor)
                         T_hierarchy[j].setdefault(level,{})["anchor"] = ind_dist[temp_anchor]
                         T_hierarchy[j].setdefault(level,{})["transf"] = self.transformation[i]
             if hierarchy[level] > 1:
@@ -916,7 +921,7 @@ class clMDS:
                 no_pathologies += 0.5
             elif len(vertices) == 4:
 #               Check if there is a pathological quadrilateral (self-intersecting)
-                go_ahead = checkpermutation( ind_anchor[i][vertices], ind_anchor[i], verbose=False )
+                go_ahead = check_permutation( ind_anchor[i][vertices], ind_anchor[i], verbose=False )
                 if go_ahead:
                     final_vertices.append(vertices)
                     no_pathologies += 1
@@ -951,7 +956,7 @@ class clMDS:
                             temp_vertices = np.concatenate(([vertices[0]], ref_point, vertices[1:]))
                             temp_pathology = 0.5
                         elif len(temp_vertices) == 4:
-                            go_ahead = checkpermutation( ind_anchor[i][temp_vertices], 
+                            go_ahead = check_permutation( ind_anchor[i][temp_vertices], 
                                                          ind_anchor[i], verbose=False )        
                             temp_pathology = 1
                         else: 
@@ -983,7 +988,7 @@ class clMDS:
                                                           h.vertices[1:])) )
                                     new_do_linear.append(j)
                                 else:
-                                    if checkpermutation( ind_anchor[j][h.vertices], ind_anchor[j], 
+                                    if check_permutation( ind_anchor[j][h.vertices], ind_anchor[j], 
                                                          verbose=False ):
                                         new_no_pathologies += 1
                                         new_vertices.append(h.vertices)
@@ -1530,7 +1535,8 @@ def optim_kmedoids(D, n_clusters, incoherence="rel", n_iter=100,  tmax=100,
 
 # Given the distance matrix of a dataset embedded in a n-dim space, this method returns the indexes of 
 # the points corresponding to the N vertices (N=3,4) of the N-dim polytope that has max. volume
-def anchor_points_ndim(N, dist_points, method=None, param_method=None, ref_point=None):
+def anchor_points_ndim(N, dist_points, method=None, param_method=None, ref_point=None, n_min=30,
+                       n_max=100):
     import math
     indexes = np.arange(0,len(dist_points),1)
     if ref_point is not None:
@@ -1545,14 +1551,34 @@ def anchor_points_ndim(N, dist_points, method=None, param_method=None, ref_point
             raise Exception("You need to provide a percentile (param_method) and a reference point " +
                             "(ref_point) for its computation.")
         percent = param_method
-        ind_anchor_ext = []
-        while len(ind_anchor_ext) < 30 and len(ind_anchor_ext) < 0.7*len(indexes):
-            dist_ref = dist_points[ref_point,:] 
+        ind_complement_percent = []
+        while len(ind_complement_percent) < n_min and percent > 60:
+            dist_ref = dist_points[ref_point,:]
             dist_ref = np.delete(dist_ref, ref_point)
-            mask_percent = (dist_ref > np.percentile(dist_ref, percent))
-            ind_anchor_ext = indexes[mask_percent]
-            percent-=10
-        vertices = itertools.combinations(ind_anchor_ext, N)
+            complement_percent = (dist_ref > np.percentile(dist_ref, percent))
+            temp_ind = indexes[complement_percent]
+            if len(temp_ind) > n_max:
+                percent+=1
+                if percent >= 100:
+                    t = n_max-len(ind_complement_percent)
+                    if t <= 0:
+                        rand_ind = ind_complement_percent
+                        np.random.shuffle(rand_ind)
+                        ind_complement_percent = np.sort(rand_ind[:n_limit])
+                    elif t == n_max:
+                        np.random.shuffle(temp_ind)
+                        ind_complement_percent = np.sort(temp_ind[:n_limit])
+                    else:
+                        rand_ind = np.setdiff1d(temp_ind, ind_complement_percent)
+                        np.random.shuffle(rand_ind)
+                        ind_complement_percent = np.concatenate((ind_complement_percent, rand_ind[:t]))
+                        ind_complement_percent = np.sort(ind_complement_percent)
+                    break
+                else:
+                    continue
+            ind_complement_percent = temp_ind
+            percent-=5
+        vertices = itertools.combinations(ind_complement_percent, N)
     elif method == "random":
         if param_method is None:
             raise Exception("You need to provide a number of random combinations of vertices (param_method)")
@@ -1581,7 +1607,6 @@ def anchor_points_ndim(N, dist_points, method=None, param_method=None, ref_point
         if V > V_opt:
             V_opt = V
             ind_anchor = vert
-
     return np.array(ind_anchor)
 
 
@@ -1675,7 +1700,7 @@ def points_in_polygon(N, vertices, other_points, qhull_opt='QbB'):
     
 # Find if a set of points is a cyclic permutation or a reflection (or both) of another set
 # Should we keep the verbose?                                                                                   <-- comment
-def checkpermutation(x, y, verbose=False):
+def check_permutation(x, y, verbose=False):
     if len(x) != len(y):
         verdict = False
         if verbose:
