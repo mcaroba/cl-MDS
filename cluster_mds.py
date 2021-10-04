@@ -29,12 +29,13 @@
 # Import dependencies
 import numpy as np
 from sklearn_mds import _mds
-from kmedoids import kmedoids
+import kmedoids
 from cur import cur
 import random
 import sys
-import itertools
-from scipy import special, spatial
+from scipy import spatial
+from anchor_selection import vertices_module as vmod
+
 
 #************************************************************************************************************
 class clMDS:
@@ -115,7 +116,7 @@ class clMDS:
                     self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
             elif sparsify not in sparse_options:
                 raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
-                                sparse_options, " or provide a list of indexes")
+                                sparse_options, " or provide a list of indices")
             else:
                 if n_sparse is None:
                     raise Exception("If you choose a sparsify option, you need to pass the n_sparse parameter")
@@ -337,6 +338,9 @@ class clMDS:
                     a.calc_connect()
                     qs = d.calc_descriptor(a)
                     for q in qs:
+                        if species_list[n] not in species:
+                            n += 1
+                            continue
                         if not self.sparsify_per_cluster:
                             if isinstance(self.sparsify, (list,np.ndarray)) or self.sparsify == "random":
                                 if n in sparse_list:       
@@ -612,10 +616,10 @@ class clMDS:
 
 #   This method clusters the data and produces the embedded 2-dimensional coordinates
 #   Make sure these are sensible defaults!!!!!!                                                              <-- comment
-    def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
-                    n_init_mds_cluster=10, max_iter_cluster=300, n_jobs_cluster=1, verbose_cluster=0,
-                    n_anchor=4, criterion_anchor="area", n_init_mds_anchor=3500, max_iter_anchor=300, 
-                    n_jobs_anchor=1, verbose_anchor=0, weight_cluster_mds=1, weight_anchor_mds=None,
+    def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="random", n_iso_med=None,
+                    n_init_mds_cluster=100, max_iter_cluster=300, n_jobs_cluster=1, verbose_cluster=0,
+                    n_anchor=4, param_anchor=None, n_init_mds_anchor=3500, max_iter_anchor=300, 
+                    n_jobs_anchor=1, verbose_anchor=0, weight_cluster_mds=10, weight_anchor_mds=None,
                     eta=0., precision_qhull=1e-7):
         """
         Parameters:
@@ -635,12 +639,18 @@ class clMDS:
                      *=(initial) clusters, anchor (points))
         Check sklearn_mds and sklearn.manifold.MDS for additional information
 
-        * Anchor points (n_anchor, criterion_anchor, precision_qhull)
-        This method only supports n_anchor=3,4 (the anchor point selection process and later
-        transformations won't make sense with other values).
-        Check anchor_points (from cluster_mds) and scipy.spatial.ConvexHull for further information.
+        * Anchor points (n_anchor, param_anchor)
+        This method only supports n_anchor=3,4 (the transformations won't make sense with other 
+        values). 
+        Use param_anchor=[p1,p2,p3] tu customize the percentiles for the different cluster sizes: 
+        1) 149 or less points, 2) from 150 to 1000 points, 3) else.
+        Check anchor_points_ndim (from cluster_mds) for further information.
 
         * Kernel weight for the distance matrix (eta)
+
+        * Transformations (precision_qhull)
+        Check self.convexity_check (from cluster_mds) and scipy.spatial.ConvexHull for further 
+        information.
 
         """
         if isinstance(hierarchy, list):
@@ -676,6 +686,7 @@ class clMDS:
 #           Maybe return the unique matrix directly from cluster_sparsification                              <-- comment
             dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
 
+        ind_medoids = np.array(ind_medoids)
         self.cluster_incoherence = I
         dist_clusters = [dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
                          for i in range(0, n_clusters)]      
@@ -690,6 +701,7 @@ class clMDS:
         embedding_h = _mds.MDS( n_components=2, dissimilarity="precomputed", n_init=n_init_mds_anchor,
                                     max_iter=max_iter_anchor, n_jobs=n_jobs_anchor, verbose=verbose_anchor )                       
         H = {}
+        H[0] = {i: np.array([i]) for i in range(0, n_clusters)}
         T_hierarchy = {i:{} for i in range(0, n_clusters)}
         mds_clusters = np.zeros((len(dist_matrix),2))
         for level in range(1, n_levels):
@@ -703,24 +715,28 @@ class clMDS:
                 D = dist_matrix[np.ix_(M_prev, M_prev)]
                 M, C = optim_kmedoids( D, hierarchy[level], incoherence="tot", n_iter=500, init_Ms="isolated",
                                        n_iso=hierarchy[level], verbose=self.verbose )[:2]
-#               Obtain a dictionary with all the indexes of each new cluster
-                C_new = { newcl: np.concatenate( [C_prev[i] for i in C[newcl]] ) 
-                                                            for newcl in range(0, hierarchy[level]) }
+#               Obtain a dictionary with all the indices of each new cluster
+                C_new = {i: np.concatenate( [C_prev[j] for j in C[i]] ) for i in C}
             elif hierarchy[level] == 1:
 #               No clustering (consider all data points)
-                C = { 0: np.arange(hierarchy[level-1]) }
-                C_new = { 0: np.arange(len(dist_matrix)) }
+                C = {0: np.arange(hierarchy[level-1])}
+                C_new = {0: np.arange(len(dist_matrix))}
             else:
                 raise Exception("There is a wrong entry in the hierarchy parameter, it must have \
                                  non-zero integers only (e.g. hierarchy=[8,1])")
-            if level == 1:
-                H[level-1] = {i: np.array([i]) for i in range(0, n_clusters)}
             H[level] = {i: np.concatenate( ([H[level-1][j] for j in C[i]]) ) for i in C}
 
 #           Obtention of anchor points
             mds_M_prev = mds_clusters[M_prev]
             mds_A = []
             ind_A = []
+            precision = 'E' + str(precision_qhull)
+            if param_anchor is None:
+                param_anchor = [70, 80, 90]
+            elif len(param_anchor) != 3:
+                param_anchor = [70, 80, 90]
+                print("You didn't provide an array of 3 percentiles, so the default param_anchor" +
+                      " will be used instead: ", param_anchor)
             for i in range(0, hierarchy[level-1]):
                 if self.verbose:
                     sys.stdout.write( '\rObtaining anchor points:%6.1f%%' 
@@ -737,41 +753,60 @@ class clMDS:
                 elif len(C_prev[i]) == 4:
                     if level == 1:
                         mds_clusters[C_prev[i]] = embedding_cl.fit_transform(dist_clusters[i])
-                    h = spatial.ConvexHull( mds_clusters[C_prev[i],:] )
+                    h = spatial.ConvexHull( mds_clusters[C_prev[i],:], qhull_options=precision )
                     mds_A.append( mds_clusters[C_prev[i],:][h.vertices] )
                     ind_A.append( C_prev[i][h.vertices] )
                 else:
 #                   Choose the procedure for the anchor points calculations depending on cluster length
-                    if len(C_prev[i]) - 1 < 20:
+                    if len(C_prev[i]) - 1 < 50:
                         method_anchor = None
                         param_method = 0
-                        limit_max = 0
-                    elif len(C_prev[i]) - 1 < 114:
+                    elif len(C_prev[i]) - 1 < 150:
                         method_anchor = "percentile"
-                        param_method = 70
-                        limit_max = int(0.7*len(C_prev[i]))
+                        param_method = param_anchor[0]
+                    elif len(C_prev[i]) - 1 < 1000:
+                        method_anchor = "percentile"
+                        param_method = param_anchor[1]
                     else:
                         method_anchor = "percentile"
-                        param_method = 80
-                        limit_max = 100
-#                   MDS and indexes of anchor points in previous level
-                    ind_med = np.where(M_prev[i] == C_prev[i])[0][0]
-                    ind_anc = anchor_points_ndim( n_anchor, dist_matrix[np.ix_(C_prev[i],C_prev[i])], 
+                        param_method = param_anchor[2]
+#                   MDS and indices of anchor points in previous level
+                    ind_cl = None
+                    if len(H[level-1][i]) == 1:
+                        ind_med = np.where(M_prev[i] == C_prev[i])[0][0]
+                    else:
+                        method_anchor = 'per cluster'
+                        param_method = []
+                        ind_med = []
+                        ind_cl = []
+#                       Be careful, the (dis)order of C_prev[i] is important here
+                        l = 0
+                        for k in H[level-1][i]:
+                            if len(ind_clusters[k]) -1 < 150:
+                                param_method.append(param_anchor[0])
+                            elif len(ind_clusters[k]) -1 < 1000:
+                                param_method.append(param_anchor[1])
+                            else:
+                                param_method.append(param_anchor[2])
+                            ind_cl.append( np.arange(l, l + len(ind_clusters[k]), 1) )
+                            ind_med.append( np.where(ind_clusters[k] == ind_medoids[k])[0][0] )
+                            l += len(ind_clusters[k])
+                    ind_anc = anchor_points_ndim( n_anchor, dist_matrix[np.ix_(C_prev[i],C_prev[i])],
                                                   method=method_anchor, param_method=param_method,
-                                                  ref_point=ind_med, n_max=limit_max )
-                    indexes = C_prev[i][ind_anc]
+                                                  ref_point=ind_med, indices_cl=ind_cl, n_max=400)
+                    indices = C_prev[i][ind_anc]
 #                   Local weights
-                    if level == 1: 
+                    if level == 1:
                         W_local = np.ones( dist_clusters[i].shape )
-                        temp = [np.where(C_prev[i] == j)[0][0] for j in list(indexes) + [M_prev[i]]]
+                        temp = [np.where(C_prev[i] == j)[0][0] for j in list(indices) + [M_prev[i]]]
                         W_local[temp] = weight_cluster_mds
                         W_local[:,temp] = weight_cluster_mds
                         W_local[np.ix_(temp, temp)] = weight_cluster_mds**2
                         mds_clusters[C_prev[i]] = embedding_cl.fit_transform(dist_clusters[i], weights=W_local)
 #                   Order of the anchor points on the previous level
-                    h = spatial.ConvexHull( mds_clusters[indexes] )
-                    mds_A.append( mds_clusters[indexes][h.vertices] )
-                    ind_A.append( indexes[h.vertices] )
+                    h = spatial.ConvexHull( mds_clusters[indices], qhull_options=precision )
+                    mds_A.append( mds_clusters[indices][h.vertices] )
+                    ind_A.append( indices[h.vertices] )
             if self.verbose:
                 sys.stdout.write('\rObtaining anchor points:%6.1f%%' % 100. )
                 sys.stdout.flush()
@@ -848,8 +883,8 @@ class clMDS:
 #                   Convexity check per cluster for their new MDS
                     embedding_h.set_params(n_init=1)
                     prev_clusters = [C_prev[i] for i in C[newcl]]
-                    self.convexity_check( C[newcl], prev_clusters, temp_A, dist_anchor, mds_anchor,
-                                          embedding_h, W_mds=W, precision = precision_qhull ) 
+                    self.convexity_check( C[newcl], temp_A, dist_anchor, mds_anchor, embedding_h,
+                                          W_mds=W, precision = precision_qhull ) 
                     embedding_h.set_params(n_init=n_init_mds_anchor)
 #                   Transformation from previous level to the new one
                     self.transform_2d( C[newcl], prev_clusters, temp_A, mds_clusters )
@@ -890,8 +925,8 @@ class clMDS:
 
 #   This method checks the presence of pathological arrangements of anchor points in the MDS (i.e. non-convex
 #   and self-intersecting results) and improves the final MDS solution (free of pathologies)
-    def convexity_check(self, clusters, prev_clusters, ind_anchor, dist_anchor, 
-                        mds_anchor, embedding, max_perm=6, W_mds=None, precision=None): 
+    def convexity_check(self, clusters, ind_anchor, dist_anchor, mds_anchor, embedding,
+                        max_perm=6, W_mds=None, precision=None): 
         no_pathologies = 0
         final_vertices = []
         do_linear = []
@@ -953,7 +988,7 @@ class clMDS:
                             go_ahead = True
 #                           We use the point excluded from the convex hull as the reference one 
                             ref_point = np.setdiff1d(np.arange(0, 4, 1), temp_vertices)
-                            temp_vertices = np.concatenate(([vertices[0]], ref_point, vertices[1:]))
+                            temp_vertices = np.concatenate(([temp_vertices[0]], ref_point, temp_vertices[1:]))
                             temp_pathology = 0.5
                         elif len(temp_vertices) == 4:
                             go_ahead = check_permutation( ind_anchor[i][temp_vertices], 
@@ -1039,8 +1074,8 @@ class clMDS:
                 self.transformation.append( [[x_new - x_prev]] )
                 print_label.append("translation")
                 continue
-            indexes = ind_anchor[i][self.order_anchor[i]]
-            X_prev = mds_clusters[indexes,:]
+            indices = ind_anchor[i][self.order_anchor[i]]
+            X_prev = mds_clusters[indices,:]
             X_new = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :][self.order_anchor[i]]
             diff_X_prev = X_prev - X_prev[1,:]
             diff_X_new = X_new - X_new[1,:]
@@ -1490,7 +1525,7 @@ def unique_rows_matrix(M, tol=1e-09, return_indices=False):
                 ind_tol_u = np.append(ind_tol_u, i)
                 M_tol_u = np.concatenate((M_tol_u, row[None,:]), axis=0)
     M_unique = M[np.ix_(np.unique(I), np.unique(I))]
-#   Return the matrix with unique entries and the unique row indexes
+#   Return the matrix with unique entries and the unique row indices
     if not return_indices:
         return M_unique, np.unique(I)
 #   Also return the indices to reconstruct the original matrix from the unique one
@@ -1533,170 +1568,87 @@ def optim_kmedoids(D, n_clusters, incoherence="rel", n_iter=100,  tmax=100,
     return M, C, I
 
 
-# Given the distance matrix of a dataset embedded in a n-dim space, this method returns the indexes of 
+# This method gives te indices of those points whose distance to a reference point is bigger 
+# than the chosen percentile
+def select_further_points(dist_points, ref_point, percentile, n_min=30, n_max=None):
+    indices = np.setdiff1d( np.arange(0, len(dist_points), 1), [ref_point] )
+    I_complement_percent = []
+    while len(I_complement_percent) < n_min and percentile > 50:
+        dist_ref = dist_points[ref_point,:]
+        dist_ref = np.delete(dist_ref, ref_point)
+        complement_percent = (dist_ref > np.percentile(dist_ref, percentile))
+        temp_ind = indices[complement_percent]
+        if n_max is not None and len(temp_ind) > n_max:
+            percentile += 1
+            if percentile >= 100:
+                t = n_max-len(I_complement_percent)
+                if t <= 0:
+                    rand_ind = I_complement_percent
+                    np.random.shuffle(rand_ind)
+                    I_complement_percent = np.sort(rand_ind[:n_limit])
+                elif t == n_max:
+                    np.random.shuffle(temp_ind)
+                    I_complement_percent = np.sort(temp_ind[:n_limit])
+                else:
+                    rand_ind = np.setdiff1d(temp_ind, I_complement_percent)
+                    np.random.shuffle(rand_ind)
+                    I_complement_percent = np.concatenate((I_complement_percent, rand_ind[:t]))
+                    I_complement_percent = np.sort(I_complement_percent)
+                break
+            else:
+                continue
+        I_complement_percent = temp_ind
+        percentile -= 5
+    return I_complement_percent
+
+
+# Given the distance matrix of a dataset embedded in a n-dim space, this method returns the indices of 
 # the points corresponding to the N vertices (N=3,4) of the N-dim polytope that has max. volume
 def anchor_points_ndim(N, dist_points, method=None, param_method=None, ref_point=None, n_min=30,
-                       n_max=100):
-    import math
-    indexes = np.arange(0,len(dist_points),1)
+                       n_max=None, indices_cl=None):
+    indices = np.arange(0, len(dist_points), 1)
     if ref_point is not None:
-        indexes = np.setdiff1d(indexes, [ref_point])
-    if len(indexes) <= N:
-        return indexes
-    V_opt = 0
-    ind_anchor = np.arange(0,N,1)
-#   Generate vertices and their possible combinations
-    if method=='percentile':
-        if param_method is None or ref_point is None:
-            raise Exception("You need to provide a percentile (param_method) and a reference point " +
-                            "(ref_point) for its computation.")
-        percent = param_method
-        ind_complement_percent = []
-        while len(ind_complement_percent) < n_min and percent > 60:
-            dist_ref = dist_points[ref_point,:]
-            dist_ref = np.delete(dist_ref, ref_point)
-            complement_percent = (dist_ref > np.percentile(dist_ref, percent))
-            temp_ind = indexes[complement_percent]
-            if len(temp_ind) > n_max:
-                percent+=1
-                if percent >= 100:
-                    t = n_max-len(ind_complement_percent)
-                    if t <= 0:
-                        rand_ind = ind_complement_percent
-                        np.random.shuffle(rand_ind)
-                        ind_complement_percent = np.sort(rand_ind[:n_limit])
-                    elif t == n_max:
-                        np.random.shuffle(temp_ind)
-                        ind_complement_percent = np.sort(temp_ind[:n_limit])
-                    else:
-                        rand_ind = np.setdiff1d(temp_ind, ind_complement_percent)
-                        np.random.shuffle(rand_ind)
-                        ind_complement_percent = np.concatenate((ind_complement_percent, rand_ind[:t]))
-                        ind_complement_percent = np.sort(ind_complement_percent)
-                    break
-                else:
-                    continue
-            ind_complement_percent = temp_ind
-            percent-=5
-        vertices = itertools.combinations(ind_complement_percent, N)
+        indices = np.setdiff1d(indices, [ref_point])
+    if len(indices) <= N:
+        return indices
+#   Refine the list of indices using the following methods (if desired)
+    if method=="percentile":
+        if param_method is None:
+            raise Exception("You need to provide a percentile (param_method).")
+        if ref_point is None:
+            raise Exception("You need to provide a reference point (ref_point).")
+        indices = select_further_points(dist_points, ref_point, param_method, n_min=n_min, n_max=n_max)
+    elif method == "per cluster":
+        if indices_cl is None:
+            raise Exception("You need to provide the indices for each cluster, " +
+                            "indices_cl = [ind_cl1, ..., ind_clN].")   
+        if ref_point is None or len(indices_cl) != len(ref_point):
+            raise Exception("You need to provide N reference points, ref_point = [p1,...,pN]," +
+                            "where N = len(indices_cl).") 
+        if param_method is None: 
+            raise Exception("You need to provide a percentile (param_method).")
+        elif isinstance(param_method, (int,float)):
+            param_method = [param_method]*len(indices_cl)
+        elif len(param_method) != len(indices_cl):
+            raise Exception("Please, provide as many percentiles as number of clusters or choose one.")
+        indices = []
+        for i in range(0, len(indices_cl)):
+            dist = dist_points[np.ix_(indices_cl[i], indices_cl[i])]
+            I = select_further_points(dist, ref_point[i], param_method[i], n_min=n_min, n_max=n_max)
+            indices.append(indices_cl[i][I])
+        indices = np.sort( np.concatenate((indices)) )
     elif method == "random":
         if param_method is None:
             raise Exception("You need to provide a number of random combinations of vertices (param_method)")
-        n_comb = special.comb(len(indexes), N, exact=True) 
         n_random = int(param_method)
-        vertices = itertools.combinations(indexes, N)
-        if n_random < n_comb:
-            rand_mask = np.zeros(n_comb, dtype=int)
-            rand_vertices = random.sample(range(0, n_comb), n_random)
-            rand_mask[rand_vertices] = 1
-            vertices = list(itertools.compress(vertices, rand_mask))
-    else:
-        vertices = itertools.combinations(indexes, N)
-#   Obtain the best polytope considering the chosen criterion
-    for vert in vertices:
-        dist_vert = dist_points[np.ix_(vert, vert)]
-#       Volumen of a N-dim simplex using Cayley-Menger determinant
-        A = np.vstack(( np.hstack(( dist_vert, np.ones((N,1)) )), np.ones((1,N+1)) ))
-        A[-1,-1] = 0
-        CM_det = np.linalg.det(A)
-        if np.allclose(CM_det, 0.):
-            CM_det = 0.
-        V = np.sqrt((-1)**(N)*CM_det/2**(N-1))/math.factorial(N-1)
-        if V == 0:
-            continue
-        if V > V_opt:
-            V_opt = V
-            ind_anchor = vert
-    return np.array(ind_anchor)
+        np.random.shuffle(indices)
+        indices = indices[:n_random]
+#   Obtain the N indices defining the (N-1)-simplex with biggest volume
+    ind_anchor = vmod.max_vol_vertices(len(indices), indices, dist_points, N)
+
+    return ind_anchor
 
 
-# Given the 2-dim coordinates of a dataset, this method chooses the N points corresponding to the N vertices  
-# of the polygon that fulfils the selected criterion (area, number of points)
-def anchor_points_2dim(N, points, method=None, n_random=None, criterion="area", precision=1.e-8):
-    """
-    3 available methods: 
-        None (default) = use all possible combinations (without repetition) of the points given 
-        "optimized" = consider all the combinations of the 30 furthest points in the dataset (or the 70% for small datasets)
-        "random" = N random-chosen sequences, where n_random=N (less accurate)
-
-    2 possible criteria:
-        "area" (default) = choose the polygon with the largest area 
-        "points" = choose the polygon including more data points
-    """
-#   Check if the number of samples given is enough to build at least 2 N-gons
-    if len(points) <= N:
-        return points
-    s_opt = 0
-    anchor_p = points[:N]
-    n_comb = special.comb(len(points), N, exact=True)
-    indexes = np.arange(0, len(points),1)
-#   Generate vertices and their possible combinations
-    precision_opt = 'E'+str(precision)
-    h = spatial.ConvexHull(points, qhull_options=precision_opt)
-    external_ind = h.vertices
-    if len(external_ind) <= N:
-        return points[external_ind]
-    if method == "optimized":
-        h = spatial.ConvexHull(points, qhull_options=precision_opt)
-        external_ind = h.vertices
-        while len(external_ind) < 0.7*len(points) and len(external_ind) < 30:
-            temp = points[ ~np.isin(indexes, external_ind), :]
-            h = spatial.ConvexHull(temp, qhull_options=precision_opt)
-            temp_vert = [np.where(pt == points)[0][0] for pt in temp[h.vertices,:]]
-            external_ind = np.concatenate((external_ind, temp_vert))
-        vertices = itertools.combinations(np.sort(external_ind), N)
-    elif method == "random":
-        n_random = int(n_random)
-        vertices = itertools.combinations(indexes, N)
-        if n_random < n_comb:
-            rand_mask = np.zeros(n_comb, dtype=int)
-            rand_vertices = random.sample(range(0, n_comb), n_random)
-            rand_mask[rand_vertices] = 1
-            vertices = list(itertools.compress(vertices, rand_mask))
-        elif not n_random:
-            raise Exception("You need to provide a number of random combinations of vertices (n_random)")
-    else:
-        vertices = itertools.combinations(indexes, N)
-#   Obtain the best polygon considering the chosen criterion
-    for vert in vertices:
-        temp_anchor = points[vert,:]
-        if criterion == "area":
-            try:
-                h = spatial.ConvexHull(temp_anchor, qhull_options=precision_opt)
-            except:
-                continue
-            s = h.volume
-            temp_anchor = temp_anchor[h.vertices] 
-        elif criterion == "points":
-            try:
-                h = spatial.ConvexHull(temp_anchor, qhull_options=precision_opt)
-            except:
-                continue
-            temp_ind = indexes[ ~np.isin(indexes, vert) ]
-            other_points = points[temp_ind,:]
-            s = points_in_polygon(N, temp_anchor, other_points, qhull_opt=precision_opt)
-        else:
-            raise Exception("Choose a criterion included in the options: area, points")
-        if s > s_opt:
-            s_opt = s
-            anchor_p = temp_anchor
-
-    return anchor_p
-
-
-# Computation of the number of points of a given set lying within a polygon with N vertices
-def points_in_polygon(N, vertices, other_points, qhull_opt='QbB'):
-    s=0
-    if N != len(vertices):
-        print("You need to provide %i vertices exactly" % N)
-    for point in other_points:
-        temp = np.concatenate((vertices, point[None,:]), axis=0)
-        h = spatial.ConvexHull(temp, qhull_options=qhull_opt)
-        if len(h.vertices) == N:
-            if set(range(0,N)) <= set(h.vertices):  
-                s += 1
-    return s
-    
     
 # Find if a set of points is a cyclic permutation or a reflection (or both) of another set
 # Should we keep the verbose?                                                                                   <-- comment
