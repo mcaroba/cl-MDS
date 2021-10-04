@@ -1,6 +1,12 @@
 # cl-MDS
 Cluster-based multidimensional scaling embedding tool for data visualization
 
+Currently under development, once it is ready we will update any missing license 
+and this README file
+
+### Installation
+fast-kmedoids required (we will include a Makefile)
+
 ### Basic Example  
 ```python
 import numpy as np
@@ -9,31 +15,24 @@ import cluster_mds as clmds
 # Basic examples using default settings
 
 # INPUT 1: Atoms file  
-# Include the computation of descriptors and their dissimilarity matrix
-data_1 = clmds.clMDS(atoms='basic_example.xyz', descriptor="quippy_soap") 
-
+# (cl-MDS computes the descriptors and their dissimilarity matrix)
+data_1 = clmds.clMDS(atoms='basic_example.xyz', descriptor="quippy_soap")
 # Clustering and embedding
-data_1.cluster_MDS([3,1], init_medoids='isolated', n_iso_med=3) 
-XY_1 = data_1.sparse_coordinates
-C_1 = data_1.sparse_cluster_indices
-Z = data_1.species_list[data_1.sparse_list]
+XYC_1 = data_1.get_sparse_coordinates([3,1])
+Z = data_1.species_list
 
 # INPUT 2: Dissimilarity matrix
 D = data_1.dist_matrix
 data_2 = clmds.clMDS(dist_matrix=D)
-
 # Clustering and embedding
-data_2.cluster_MDS([3,1], init_medoids='isolated', n_iso_med=3) 
-XY_2 = data_2.sparse_coordinates
-C_2 = data_2.sparse_cluster_indices
-
+XYC_2 = data_2.get_sparse_coordinates([3,1])
 
 # RESULTS
 print('Points | Clusters 1  Embedded coord. 1 | Clusters 2  Embedded coord. 2  ')
 for i in range(0, len(D)):
     print( '   %s         %i       [%s]       %i       [%s]' % 
-           (Z[i], C_1[i], ' '.join('% .4f' % j for j in XY_1[i,:]), C_2[i], 
-           ' '.join('% .4f' % j for j in XY_2[i,:])) )
+           (Z[i], XYC_1[i,2], ' '.join('% .4f' % j for j in XYC_1[i,:2]), XYC_2[i,2], 
+           ' '.join('% .4f' % j for j in XYC_2[i,:2])) )
 
 # Extend the Atoms file with the cl-MDS coordinates and cluster indices
 data_1.write_xyz(filename='basic_example_ext.xyz')
@@ -45,25 +44,24 @@ data_1.medoids_to_xyz(dir='basic_example', carve_radius=1.9, render=True, gnuplo
 Output:
 ```
 Points | Clusters 1  Embedded coord. 1 | Clusters 2  Embedded coord. 2
-   C         1       [ 0.4821 -0.1902]       1       [-0.1993 -0.5469]
-   C         1       [ 0.4348  0.1461]       1       [ 0.0294 -0.4909]
-   C         1       [ 0.9155 -0.2807]       1       [-0.6042 -0.1560]
-   C         1       [ 0.5778 -0.2330]       1       [-0.3163 -0.4654]
-   C         1       [ 0.2482  0.4091]       1       [ 0.3081 -0.5489]
-   C         1       [ 0.5500  0.1310]       1       [-0.0941 -0.3808]
-   C         1       [ 0.3552  0.1874]       1       [ 0.1234 -0.5511]
-   C         1       [ 0.3148  0.3925]       1       [ 0.2361 -0.4958]
-   C         1       [ 0.5499  0.1311]       1       [-0.0941 -0.3808]
-   C         1       [ 0.5421 -0.2115]       1       [-0.2768 -0.4913]
-   O         2       [-0.0200 -0.6565]       2       [-0.4184  0.4731]
-   O         2       [-0.6283 -0.0975]       2       [ 0.3630  0.5091]
-   O         2       [-0.3798 -0.4738]       2       [-0.0587  0.5831]
-   H         0       [-0.5044  0.5121]       0       [ 0.6952  0.0211]
+   C         2       [-0.5579 -0.0920]       2       [ 0.4902  0.2944]
+   C         2       [-0.4895 -0.3194]       2       [ 0.6035  0.0403]
+   C         2       [-0.4451  0.4241]       2       [ 0.0357  0.6153]
+   C         2       [-0.5837 -0.0574]       2       [ 0.4817  0.3537]
+   C         2       [-0.3134 -0.4948]       2       [ 0.5498 -0.1522]
+   C         2       [-0.2987 -0.2134]       2       [ 0.3513  0.0677]
+   C         2       [-0.4601 -0.3567]       2       [ 0.5997 -0.0049]
+   C         2       [-0.3334 -0.4578]       2       [ 0.5457 -0.1211]
+   C         2       [-0.2987 -0.2134]       2       [ 0.3513  0.0677]
+   C         2       [-0.5755 -0.0741]       2       [ 0.4857  0.3315]
+   O         1       [ 0.6293 -0.0469]       1       [-0.4211 -0.4700]
+   O         1       [ 0.1424  0.6296]       1       [-0.5421  0.3613]
+   O         1       [ 0.4960  0.3519]       1       [-0.6001 -0.0877]
+   H         0       [ 0.3732 -0.5931]       0       [ 0.1448 -0.6882]
 ```
 
 
 ### Main parameters
 
-### Installation
 
 

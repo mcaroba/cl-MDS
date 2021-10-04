@@ -34,7 +34,7 @@ from cur import cur
 import random
 import sys
 from scipy import spatial
-from anchor_selection import vertices_module as vmod
+from fortran.anchor_selection import vertices_module as vmod
 
 
 #************************************************************************************************************
@@ -72,6 +72,7 @@ class clMDS:
 #       Read in the distance matrix
         if dist_matrix is not None:
             self.dist_matrix = dist_matrix
+            self.n_env = len(dist_matrix)
             self.has_dist_matrix = True
         else:
             self.has_dist_matrix = False
@@ -616,7 +617,7 @@ class clMDS:
 
 #   This method clusters the data and produces the embedded 2-dimensional coordinates
 #   Make sure these are sensible defaults!!!!!!                                                              <-- comment
-    def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="random", n_iso_med=None,
+    def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=100, max_iter_cluster=300, n_jobs_cluster=1, verbose_cluster=0,
                     n_anchor=4, param_anchor=None, n_init_mds_anchor=3500, max_iter_anchor=300, 
                     n_jobs_anchor=1, verbose_anchor=0, weight_cluster_mds=10, weight_anchor_mds=None,
@@ -1674,5 +1675,20 @@ def check_permutation(x, y, verbose=False):
         else:
             verdict = False
     return verdict
+
+
+# Computation of the number of points of a given set lying within a polygon with N vertices
+def points_in_polygon(N, vertices, other_points, qhull_opt='QbB'):
+    s=0
+    if N != len(vertices):
+        print("You need to provide %i vertices exactly" % N)
+    for point in other_points:
+        temp = np.concatenate((vertices, point[None,:]), axis=0)
+        h = spatial.ConvexHull(temp, qhull_options=qhull_opt)
+        if len(h.vertices) == N:
+            if set(range(0,N)) <= set(h.vertices):  
+                s += 1
+    return s
+
 
 #************************************************************************************************************
