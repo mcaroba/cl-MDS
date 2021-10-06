@@ -12,7 +12,7 @@ Z = data_1.species_list
 
 # INPUT 2: Dissimilarity matrix
 D = data_1.dist_matrix
-data_2 = clmds.clMDS(dist_matrix=D)
+data_2 = clmds.clMDS(dist_matrix = D)
 # Clustering and embedding
 XYC_2 = data_2.get_sparse_coordinates([3,1])
 
