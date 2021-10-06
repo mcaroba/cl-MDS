@@ -29,7 +29,7 @@
 # Import dependencies
 import numpy as np
 from sklearn_mds import _mds
-import kmedoids
+import kmedoids as km
 from cur import cur
 import random
 import sys
@@ -481,8 +481,8 @@ class clMDS:
 
         sparse_list = self.sparse_list
 #       Compute the clustering with the initial sparse set (considering only unique entries)
-        M, C, I = optim_kmedoids( dist_matrix, n_clusters, incoherence="rel", n_iter=iter_med, 
-                                  tmax=tmax, init_Ms=init_medoids, n_iso=n_iso_med, verbose=self.verbose)
+        M, C = km.kMedoids( dist_matrix, n_clusters, incoherence="rel", n_inits=iter_med, 
+                            tmax=tmax, init_Ms=init_medoids, n_iso=n_iso_med, verbosity=self.verbose)
 #       Change this part (do not take into account the repeated entries to add new sparse entries)            <-- comment
         n_C = []
         C_incomplete = []
@@ -550,7 +550,7 @@ class clMDS:
         else:
             print("The sparse set already fulfils your n_sparse request.")  
 
-        return M, C, I
+        return M, C
 
 
 
@@ -586,8 +586,9 @@ class clMDS:
             for m, param in enumerate(param_iso):
                 if param > n:
                     break
-                M, C, I_rel[ind,m] = optim_kmedoids(dist_matrix, n, incoherence="rel", init_Ms=specific_Ms, 
-                                                    n_iso=param)
+                M, C = km.kMedoids(dist_matrix, n, incoherence="rel", init_Ms=specific_Ms, 
+                                   n_iso=param, n_inits=100)
+                I_rel[ind,m] = km.cluster_incoherence(dist_matrix, M, C)
                 I_tot[ind,m] = 0.
                 for i in range(0, n):
                     C_ind[C[i]] = i
@@ -677,18 +678,18 @@ class clMDS:
             if not self.has_dist_matrix:
                 self.build_dist_matrix() 
             dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
-            ind_medoids, ind_clusters, I = optim_kmedoids( dist_matrix, n_clusters, incoherence="rel",
-                                                           n_iter=iter_med, tmax=tmax, init_Ms=init_medoids,
-                                                           n_iso=n_iso_med, verbose=self.verbose )
+            ind_medoids, ind_clusters = km.kMedoids( dist_matrix, n_clusters, incoherence="rel",
+                                                     n_inits=iter_med, tmax=tmax, init_Ms=init_medoids,
+                                                     n_iso=n_iso_med, verbosity=self.verbose )
         else: 
-            ind_medoids, ind_clusters, I = cluster_sparsification(n_clusters, init_medoids=init_medoids,
-                                                                  n_iso_med=n_iso_med, iter_med=iter_med,
-                                                                  tmax=tmax)
+            ind_medoids, ind_clusters = cluster_sparsification(n_clusters, init_medoids=init_medoids,
+                                                               n_iso_med=n_iso_med, iter_med=iter_med,
+                                                               tmax=tmax)
 #           Maybe return the unique matrix directly from cluster_sparsification                              <-- comment
             dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
 
         ind_medoids = np.array(ind_medoids)
-        self.cluster_incoherence = I
+        self.cluster_incoherence = km.cluster_incoherence(dist_matrix, ind_medoids, ind_clusters)
         dist_clusters = [dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])]
                          for i in range(0, n_clusters)]      
 
@@ -714,8 +715,8 @@ class clMDS:
             if hierarchy[level] > 1:
 #               Assign the clusters of previous level to the current ones
                 D = dist_matrix[np.ix_(M_prev, M_prev)]
-                M, C = optim_kmedoids( D, hierarchy[level], incoherence="tot", n_iter=500, init_Ms="isolated",
-                                       n_iso=hierarchy[level], verbose=self.verbose )[:2]
+                M, C = km.kMedoids( D, hierarchy[level], incoherence="tot", n_inits=500, init_Ms="isolated",
+                                       n_iso=hierarchy[level], verbosity=self.verbose )
 #               Obtain a dictionary with all the indices of each new cluster
                 C_new = {i: np.concatenate( [C_prev[j] for j in C[i]] ) for i in C}
             elif hierarchy[level] == 1:
@@ -796,6 +797,7 @@ class clMDS:
                                                   method=method_anchor, param_method=param_method,
                                                   ref_point=ind_med, indices_cl=ind_cl, n_max=400)
                     indices = C_prev[i][ind_anc]
+                    print(i, len(C_prev[i]), indices)
 #                   Local weights
                     if level == 1:
                         W_local = np.ones( dist_clusters[i].shape )
@@ -885,7 +887,7 @@ class clMDS:
                     embedding_h.set_params(n_init=1)
                     prev_clusters = [C_prev[i] for i in C[newcl]]
                     self.convexity_check( C[newcl], temp_A, dist_anchor, mds_anchor, embedding_h,
-                                          W_mds=W, precision = precision_qhull ) 
+                                          W_mds=W, precision=precision_qhull )
                     embedding_h.set_params(n_init=n_init_mds_anchor)
 #                   Transformation from previous level to the new one
                     self.transform_2d( C[newcl], prev_clusters, temp_A, mds_clusters )
@@ -1541,6 +1543,7 @@ def unique_rows_matrix(M, tol=1e-09, return_indices=False):
 # This method chooses the kmedoids clustering with minimum intra-cluster incoherence (relative or total)
 def optim_kmedoids(D, n_clusters, incoherence="rel", n_iter=100,  tmax=100, 
                    init_Ms="random", n_iso=None, verbose=False):
+    from kmedoids_python import kmedoids
     if verbose:
         print("")
     for t in range(0, n_iter):

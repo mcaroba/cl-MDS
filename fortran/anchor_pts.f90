@@ -73,19 +73,20 @@ end function
 
 
 
-subroutine get_dist_vertices(dist_points, vert, dist_vertices)
+subroutine get_dist_vertices(dist_points, vert, dist_vertices, N)
 
   implicit none
 
+  integer, intent(in) :: N
   real*8, intent(in) :: dist_points(:, :)
-  integer, intent(in) :: vert(1:4)
-  real*8, intent(out) :: dist_vertices(1:4, 1:4)
+  integer, intent(in) :: vert(1:N)
+  real*8, intent(out) :: dist_vertices(1:N, 1:N)
 
   integer :: i, j, i2, j2
 
-  do i = 1, 4
+  do i = 1, N
     i2 = vert(i)
-    do j = 1, 4
+    do j = 1, N
       j2 = vert(j)
       dist_vertices(i, j) = dist_points(i2, j2)
     end do
