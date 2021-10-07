@@ -31,7 +31,7 @@ subroutine max_vol_vertices(n_points, map_ind, dist_points, N, ind_anchor)
         do l = k+1, n_points
           l2 = map_ind(l) + 1
           vert(1:4) = [i2,j2,k2,l2]
-          call get_dist_vertices(dist_points, vert, dist_vert)
+          call get_dist_vertices(dist_points, vert, N, dist_vert)
 
           A(1:4, 1:4) = dist_vert(1:4, 1:4)
           A(5, :) = 1.d0
@@ -73,7 +73,7 @@ end function
 
 
 
-subroutine get_dist_vertices(dist_points, vert, dist_vertices, N)
+subroutine get_dist_vertices(dist_points, vert, N, dist_vertices)
 
   implicit none
 
