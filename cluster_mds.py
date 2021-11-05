@@ -620,7 +620,7 @@ class clMDS:
 #   Make sure these are sensible defaults!!!!!!                                                              <-- comment
     def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=100, max_iter_cluster=300, n_jobs_cluster=1, verbose_cluster=0,
-                    param_anchor=None, n_init_mds_anchor=3500, max_iter_anchor=300, 
+                    param_anchor=[70,80,90], n_init_mds_anchor=3500, max_iter_anchor=300, 
                     n_jobs_anchor=1, verbose_anchor=0, weight_cluster_mds=10, weight_anchor_mds=None,
                     eta=0., precision_qhull=1e-7):
         """
@@ -764,7 +764,7 @@ class clMDS:
         ind_anchor = {0: ind_A}
         A = np.concatenate((ind_A)).astype('int32')
         all_M = {0: ind_medoids}
-        for level in range(1, n_levels):
+        for level in range(1, n_levels-1):
             if self.verbose:
                 print("")
                 print( '\rHierarchy level %i (%i ---> %i clusters)' % (level-1, hierarchy[level-1], 
