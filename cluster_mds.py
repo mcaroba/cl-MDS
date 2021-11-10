@@ -808,7 +808,7 @@ class clMDS:
                         l += len(ind_clusters[i])
                     indices = np.concatenate( indices ).astype('int32')
                     D = dist_matrix[np.ix_(C_new[newcl],C_new[newcl])]
-                    ind_A = anchor_points_ndim(n_anchor, D, method=indices)
+                    ind_A = anchor_points_ndim(4, D, method=indices)
                     ind_A = C_new[newcl][ind_A]
                     temp_A.append( ind_A ) 
             ind_anchor[level] = temp_A
