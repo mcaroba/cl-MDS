@@ -1125,20 +1125,34 @@ class clMDS:
                     assert (s > 0) & (t > 0)    
                 except:
                     raise Warning('The anchor points of cluster %i form a non-convex quadrilateral' % clusters[i])
+#               Homography transformation and its residue
                 F = np.array([[b*c*s,     0, b*(c*s - a*t)],
                               [    0, a*d*s, a*(d*s - b*t)],
                               [    0,     0,         a*b*t]])
-                self.transformation.append( [X_prev[1,:], T_prev, F, T_new_inv, X_new[1,:]] )
                 if len(prev_clusters[i]) == 4:
-#                   Small clusters
+#                   Small clusters shortcut
                     self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
+                    result_homography = self.sparse_coordinates[ind_anchor[i],:]
+                    print(i, "homography (small cluster)")
                 else:
-                    transf_prev = np.dot(mds_clusters[prev_clusters[i]]- X_prev[1,:], T_prev)
+                    transf_prev = np.dot(mds_clusters[prev_clusters[i],:]- X_prev[1,:], T_prev)
                     transf_prev_homog = np.concatenate((transf_prev, np.ones((len(transf_prev),1))), axis=1)
                     perspective_homog =  np.dot(transf_prev_homog, F)
                     perspective = perspective_homog/perspective_homog[:,-1][:,None] 
-                    self.sparse_coordinates[prev_clusters[i]] = np.dot(perspective[:,:2], T_new_inv) + X_new[1,:]
-                print_label.append("homography")
+                    result_homography = np.dot(perspective[:,:2], T_new_inv) + X_new[1,:]
+                Rh = np.sum( (mds_clusters[prev_clusters[i],:] - result_homography)**2 )
+#               Compute also the linear transf. for these points and compare their residues 
+                T_lin = np.linalg.lstsq(diff_X_prev, diff_X_new, rcond=None )[0]
+                result_linear = np.dot(mds_clusters[prev_clusters[i],:] - X_prev[1,:], T_lin) + X_new[1,:]
+                Rl = np.sum( (mds_clusters[prev_clusters[i],:] - result_linear)**2 )
+                if Rh < Rl:
+                    self.sparse_coordinates[prev_clusters[i],:] = result_homography
+                    self.transformation.append( [X_prev[1,:], T_prev, F, T_new_inv, X_new[1,:]] )
+                    print_label.append("homography")
+                else:
+                    self.sparse_coordinates[prev_clusters[i],:] = result_linear
+                    self.transformation.append( [X_prev[1,:], T_lin, X_new[1,:]] )
+                    print_label.append("linear (rejected homography)")
             else:
                 raise Warning("There must be something wrong before cluster %i, check the list of anchor points: "
                                % clusters[i], ind_anchor)
