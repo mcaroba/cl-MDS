@@ -717,9 +717,9 @@ class clMDS:
                 ind_A.append( np.array(ind_clusters[i]) )
                 continue
             if L - 1 < 70:
-                pot_indices[i] = np.setdiff1d( np.arange(0, L, 1), [ind_medoids[i]] )
                 M = np.where(ind_medoids[i] == ind_clusters[i])[0][0]
-                param_method = 100
+                pot_indices[i] = np.setdiff1d( np.arange(0, L, 1), [M] )
+                param_method = 0
             else:
                 if L - 1 < 150:
                     param_method = param_anchor[0]
@@ -1152,7 +1152,7 @@ class clMDS:
                 else:
                     self.sparse_coordinates[prev_clusters[i],:] = result_linear
                     self.transformation.append( [X_prev[1,:], T_lin, X_new[1,:]] )
-                    print_label.append("linear (rejected homography)")
+                    print_label.append("linear (homography was rejected)")
             else:
                 raise Warning("There must be something wrong before cluster %i, check the list of anchor points: "
                                % clusters[i], ind_anchor)
@@ -1313,8 +1313,8 @@ class clMDS:
 #           distance matrix per cluster
             C = np.where(cluster_indices == i)[0] 
             C_sparse = self.sparse_clusters[i]
-            if len(C_sparse) == 1 and len(C) > 1:
-                print('NOTE: Cluster %i has only 1 sparse point. More sparse elements (3 minimum) are ' % i +
+            if len(C_sparse) in [1, 2] and len(C) > 2:
+                print('NOTE: Cluster %i has only 1-2 sparse points. More sparse elements (3 minimum) are ' % i +
                       'needed to get a proper estimation for the other cluster points.')
             dist_cluster = np.empty([len(C), len(C_sparse)])
             for j in range(0, len(C)):
@@ -1346,7 +1346,8 @@ class clMDS:
             local_coordinates[ind_sparse] = local_mds_sparse
 #           Transform the coordinates from local to global space
             transf_coordinates[C] = local_coordinates[C]                       
-            T_2d = self.all_transformations[i][level]["transf"]
+            transf_coordinates[C] = local_coordinates[C]
+            T_2d = self.all_transformations[i][0]["transf"] # check if we change hierarchy computations                    <-- comment
             if len(T_2d) == 1:
 #               Sparse cluster with 1 point (translation)
                 transf_coordinates[C] = transf_coordinates[C] + T_2d[0]
