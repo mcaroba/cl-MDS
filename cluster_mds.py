@@ -477,7 +477,7 @@ class clMDS:
         elif len(self.descriptor) < self.all_env:
             self.build_descriptor()
         self.build_dist_matrix()
-        dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
+        dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
 
         sparse_list = self.sparse_list
 #       Compute the clustering with the initial sparse set (considering only unique entries)
@@ -541,7 +541,7 @@ class clMDS:
             self.sparse_list = sorted(sparse_list)
             self.n_sparse = n_sparse
             self.build_dist_matrix()
-            dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
+            dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
             new_indices = new_indices[ind_dist]
             M = np.array([np.where(new_indices == med)[0][0] for med in M])
 #           Change this part                                                                              <-- comment
@@ -561,7 +561,7 @@ class clMDS:
                             specific_n_iso=None, I_min="tot", n_ranking=15):
         if not self.has_dist_matrix:
             self.build_dist_matrix()
-        dist_matrix, ind_dist = unique_rows_matrix(self.dist_matrix)
+        dist_matrix, ind_dist = remove_zero_entries(self.dist_matrix)
 
         from sklearn.metrics import silhouette_samples, silhouette_score
 
@@ -675,7 +675,7 @@ class clMDS:
         if not self.sparsify_per_cluster: 
             if not self.has_dist_matrix:
                 self.build_dist_matrix() 
-            dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
+            dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
             ind_medoids, ind_clusters = km.kMedoids( dist_matrix, n_clusters, incoherence="rel",
                                                      n_inits=iter_med, tmax=tmax, init_Ms=init_medoids,
                                                      n_iso=n_iso_med, verbosity=self.verbose )
@@ -684,7 +684,7 @@ class clMDS:
                                                                n_iso_med=n_iso_med, iter_med=iter_med,
                                                                tmax=tmax)
 #           Maybe return the unique matrix directly from cluster_sparsification                              <-- comment
-            dist_matrix, ind_dist, ind_dist_inv = unique_rows_matrix(self.dist_matrix, return_indices=True)
+            dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
 
         ind_medoids = np.array(ind_medoids)
         dist_clusters = [dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])] for i in range(0, n_clusters)]
@@ -707,7 +707,7 @@ class clMDS:
                                   % (float(i)*100./float(hierarchy[0])) )
                 sys.stdout.flush()
             L = len(ind_clusters[i])
-            if L < 4:
+            if L <= 4:
                 pot_indices[i] = np.arange(0, L, 1)
                 if L == 1:
                     mds_clusters[ind_clusters[i]] = np.zeros((1,2)) # avoid sklearn RuntimeWarning
@@ -904,7 +904,7 @@ class clMDS:
             embedding_h.set_params(n_init=n_init_mds_anchor)
 #           Transformation from previous level to the new one
             self.transform_2d( range(0, n_clusters), prev_clusters, ind_anchor[0], mds_clusters )
-            for level in range(1, n_levels-1):
+            for level in range(0, n_levels-1):
                 for i, a in enumerate(ind_anchor[level]):
                     if level == 0:
                         temp_anchor = a[self.order_anchor[i]]
@@ -1538,7 +1538,7 @@ class clMDS:
 #************************************************************************************************************
 #******************************************* Suporting functions ********************************************
 
-# This method find the repeated rows on a matrix M (within a tolerance) 
+# This method find the repeated rows on a **square** matrix M (within a tolerance) 
 def unique_rows_matrix(M, tol=1e-09, return_indices=False):
     n = len(M)
     I = np.arange(0, n, 1)
@@ -1554,6 +1554,34 @@ def unique_rows_matrix(M, tol=1e-09, return_indices=False):
             else:
                 ind_tol_u = np.append(ind_tol_u, i)
                 M_tol_u = np.concatenate((M_tol_u, row[None,:]), axis=0)
+    M_unique = M[np.ix_(np.unique(I), np.unique(I))]
+#   Return the matrix with unique entries and the unique row indices
+    if not return_indices:
+        return M_unique, np.unique(I)
+#   Also return the indices to reconstruct the original matrix from the unique one
+    I_inv = np.zeros(n, dtype=int)
+    I_inv[np.unique(I)] = np.arange(0, len(M_unique), 1)
+    for i in np.arange(0, len(M_unique), 1):
+        temp = np.where(I == np.unique(I)[i])[0]
+        I_inv[temp] = i
+    return M_unique, np.unique(I), I_inv
+
+
+# This method removes all the entries (except the first one) that form a block
+# of zeros in a matrix M (even if they are different rows)
+def remove_zero_entries(M, return_indices=False):
+    n = len(M)
+    I = np.arange(0, n, 1)
+    indices = np.where((M + np.eye(n)) == 0.)
+    ind_unique, counts = np.unique(indices[0], return_counts=True)
+    if len(ind_unique) > 0:
+        ind_rep = [indices[1][0]]
+        s = 0
+        for i, c in zip(ind_unique, counts):
+             if i not in ind_rep:
+                 ind_rep = ind_rep + list(indices[1][s:s + c])
+                 I[indices[1][s:s + c]] = i
+             s += c
     M_unique = M[np.ix_(np.unique(I), np.unique(I))]
 #   Return the matrix with unique entries and the unique row indices
     if not return_indices:
