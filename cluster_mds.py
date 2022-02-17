@@ -481,6 +481,7 @@ class clMDS:
 
         sparse_list = self.sparse_list
 #       Compute the clustering with the initial sparse set (considering only unique entries)
+#       Remember to redefine init_medoids to unique entries indices (not implemented yet)                     <-- comment
         M, C = km.kMedoids( dist_matrix, n_clusters, incoherence="rel", n_inits=iter_med, 
                             tmax=tmax, init_Ms=init_medoids, n_iso=n_iso_med, verbosity=self.verbose)
 #       Change this part (do not take into account the repeated entries to add new sparse entries)            <-- comment
@@ -676,14 +677,21 @@ class clMDS:
             if not self.has_dist_matrix:
                 self.build_dist_matrix() 
             dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
+            if isinstance(init_medoids, (np.ndarray, list)):
+#               The indices given by the user are regarding the FULL dist. matrix (including
+#               zero/repeated entries), so they need to be redefine
+                init_medoids = ind_dist_inv[init_medoids]
             ind_medoids, ind_clusters = km.kMedoids( dist_matrix, n_clusters, incoherence="rel",
                                                      n_inits=iter_med, tmax=tmax, init_Ms=init_medoids,
                                                      n_iso=n_iso_med, verbosity=self.verbose )
-        else: 
+            if isinstance(init_medoids, (np.ndarray, list)) and iter_med == 0:
+                assert set(ind_medoids) == set(init_medoids)
+        else:
+#           NOT READY YET, revise this part                                                                   <-- comment
             ind_medoids, ind_clusters = cluster_sparsification(n_clusters, init_medoids=init_medoids,
                                                                n_iso_med=n_iso_med, iter_med=iter_med,
                                                                tmax=tmax)
-#           Maybe return the unique matrix directly from cluster_sparsification                              <-- comment
+#           Maybe return the unique matrix directly from cluster_sparsification?                              <-- comment
             dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
 
         ind_medoids = np.array(ind_medoids)
