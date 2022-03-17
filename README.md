@@ -24,6 +24,7 @@ Clone the **cl-MDS** repository *recursively*:
 
 Execute the build script:
 
+    cd cl-MDS/
     ./build_libraries.sh
 
 Add the root directory to your Python path:
