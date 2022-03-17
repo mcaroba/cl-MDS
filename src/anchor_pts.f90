@@ -1,4 +1,4 @@
-! Copyright (c) 2021 Miguel A. Caro
+! Copyright (c) 2021-2022 Miguel A. Caro and Patricia Hernández-León
 
 module vertices_module
 

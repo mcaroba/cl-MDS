@@ -1,0 +1,3 @@
+[submodule "fast-kmedoids"]
+	path = fast-kmedoids
+	url = http://github.com/mcaroba/fast-kmedoids

@@ -1,9 +1,9 @@
 #************************************************************************************************************
 # This is the cluster-based MultiDimensional Scaling code for dimensionality reduction data analysis.       #
 #                                                                                                           #
-#                                                cl-MDS                                                      #
+#                                                cl-MDS                                                     #
 #                                                                                                           #
-# This code has been written and is copyright (c) 2018-2020 of the following authors:                       #
+# This code has been written and is copyright (c) 2018-2022 of the following authors:                       #
 #                                                                                                           #
 # *) Patricia Hernandez-Leon                                                                                #
 # *) Miguel A. Caro                                                                                         #
@@ -14,14 +14,14 @@
 # See the file LICENSE.md for license information and the README.md file for practical installation         #
 # instructions and usage examples. The official code repository is                                          #
 #                                                                                                           #
-#                                   https://github.com/mcaroba/cl-MDS/                                       #
+#                                   https://github.com/mcaroba/cl-MDS                                       #
 #                                                                                                           #
 # Visit the repository for the latest version of this distribution.                                         #
 #                                                                                                           #
 #                                                                                                           #
-# If you use cl-MDS for the compilation of academic/scientific/technical work, please cite, as appropriate:  #
+# If you use cl-MDS for the compilation of academic/scientific/technical work, please cite, as appropriate: #
 #                                                                                                           #
-# P. Hernandez-Leon and M.A. Caro, XXX, YYY (2020)                                                          #
+# P. Hernandez-Leon and M.A. Caro, XXX, YYY (2022)                                                          #
 #                                                                                                           #
 #************************************************************************************************************
 
@@ -34,7 +34,7 @@ from cur import cur
 import random
 import sys
 from scipy import spatial
-from fortran.anchor_selection import vertices_module as vmod
+from src.anchor_selection import vertices_module as vmod
 
 
 #************************************************************************************************************
