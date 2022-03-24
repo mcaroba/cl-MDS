@@ -31,7 +31,6 @@ import numpy as np
 from sklearn_mds import _mds
 import kmedoids as km
 from cur import cur
-import random
 import sys
 from scipy import spatial
 from src.anchor_selection import vertices_module as vmod
@@ -51,7 +50,43 @@ class clMDS:
 #   Initialize the class:
     def __init__(self, dist_matrix=None, atoms=None, descriptor=None, descriptor_string=None,
                  sparsify=None, sparsify_per_cluster=False, n_sparse=None, max_n_sparse=None,
-                 average_kernel=False, cutoff=None, do_species=None, verbose=True):
+                 cutoff=None, do_species=None, average_kernel=False, verbose=True):
+        """
+        Arguments related to:
+
+        - input (user must pass one of these): 
+            *dist_matrix = 2D array, None(default)
+            *atoms = str, None(default)
+                Filename with the atomic structures (requires ase installation).
+
+        - atomic descriptors (when passing atoms):
+            *descriptor = str, None(default)
+                Atomic descriptor from the implemented_descriptors list.
+            *descriptor_string = str, None(default)
+                String with the descriptor info.
+            *cutoff = float, [float,float], None(default)
+                Radius cutoff used in SOAP descriptors (first option for quippy_soap,
+                second one for quippy_soap_turbo).
+            *do_species = list of str, None(default)
+                Selection of species which will be considered. If None, all species
+                in atoms are taken into account.
+            *average_kernel = bool
+                If True, the average kernel for each structure is computed instead of
+                per atom (available only with quippy_soap).
+
+        - sparsification:
+            *sparsify = str, list/array, None(default)
+                Sparsification method from sparse_options list.
+                Alternatively, list/array with the indices of the desired sparse set.
+            *n_sparse = int, None(default)
+                Number of elements in the sparse set (needed for sparsify=str, ignore
+                otherwise).
+            *sparsify_per_cluster = bool       --- in development (DO NOT USE)
+            *max_n_sparse = int, None(default) --- in development (DO NOT USE)
+
+        implemented_descriptors = ["quippy_soap","quippy_soap_turbo"]
+        sparse_options = ["random", "cur"]
+        """
 #       This is the list of implemented atomic descriptors (it typically requires external
 #       programs)
         implemented_descriptors = ["quippy_soap","quippy_soap_turbo"]
@@ -64,6 +99,7 @@ class clMDS:
         self.is_clustered = False
         self.has_clmds = False
         self.cutoff = cutoff
+        self.do_species = do_species
         self.average_kernel = average_kernel
         self.has_estimation = False
 #       The descriptor is not attached until build_descriptor() is run
@@ -100,39 +136,36 @@ class clMDS:
             self.descriptor_type = descriptor
             self.descriptor_string = descriptor_string
 
-#       Check if the user only wants specific species to be considered
-        if do_species is None:
-            self.do_species = True
-        else:
-            self.do_species = do_species
-
 #       Check if the user wants to use sparsification       
         if sparsify is not None:
             if isinstance(sparsify, (list, np.ndarray)):
                 sparsify = list(set(sparsify)) # Avoid repeated entries                                     <--- check this
-                self.n_sparse = len(sparsify)
                 self.sparsify = sparsify
-                if self.has_dist_matrix:
-                    self.sparse_list = sorted(sparsify)
-                    self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
+                self.n_sparse = len(sparsify)
+                self.sparse_list = sorted(sparsify)
             elif sparsify not in sparse_options:
                 raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
                                 sparse_options, " or provide a list of indices")
             else:
                 if n_sparse is None:
                     raise Exception("If you choose a sparsify option, you need to pass the n_sparse parameter")
-                else:
-                    self.sparsify = sparsify
-                    self.n_sparse = n_sparse
-                if sparsify == "cur" and self.has_dist_matrix:
-                    self.sparse_list = list(set(cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]))
-                    self.dist_matrix = dist_matrix(np.ix_(self.sparse_list, self.sparse_list))
+                self.sparsify = sparsify
+                self.n_sparse = n_sparse
 #               Implement the "optimized sparse set" as a sparsify option                                           <--- comment  
+            if self.has_dist_matrix:
+                if sparsify == "random":
+                    sparse_list = np.arange(0, len(self.dist_matrix), 1)
+                    np.random.shuffle(sparse_list)
+                    self.sparse_list = sorted(sparse_list[:n_sparse])
+                elif sparsify == "cur":
+                    sparse_list = cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]
+                    self.sparse_list = list(set(sparse_list))
+                self.dist_matrix = dist_matrix[np.ix_(self.sparse_list, self.sparse_list)]
 
 
 
 #   This method takes care of adding a descriptor to the clMDS class:
-    def build_descriptor(self, zeta=4):
+    def build_descriptor(self, zeta=6):
         if not hasattr(self, 'descriptor_type'):
             raise Exception("You must define a descriptor, check the implemented options")
 
@@ -145,13 +178,9 @@ class clMDS:
             self.zeta = zeta
             species_list = []
             for ats in self.atoms:
-                for at in ats:
-                    species_list.append(at.symbol)
+                species_list += ats.get_chemical_symbols()
             self.species_list = species_list
-            if self.do_species is True:
-                species = list(set(species_list)) 
-            else:
-                species = list(set(self.do_species))
+            species = list(set(species_list)) 
 #           This uses some default SOAP parameters
             if descriptor_string is None:
                 species_string = ""
@@ -274,34 +303,29 @@ class clMDS:
                     self.cutoff = cutoff
 
 #           Get the number of environments 
+            if self.do_species is not None:
+                species = list(set(self.do_species))
             if self.average_kernel:
                 n_env = len(self.atoms)
             else:
                 n_env = sum(len(ats) for ats in self.atoms)
             self.all_env = n_env
 #           Check if there is sparsification
+            if self.do_species is None:
+                sparse_list = list(range(n_env)) # added to avoid possible crushes in other methods
+            else:
+                sparse_list = []
+                for z in species:
+                    sparse_list += list(np.where( np.array(species_list) == z )[0])
             if self.sparsify is not None:
                 if isinstance(self.sparsify, (list, np.ndarray)):
                     if len(self.sparsify) > n_env:
                         raise Exception("The sparse set can't be larger than the complete dataset")
                     else: 
                         sparse_list = np.array(self.sparsify, dtype=int)
-                        self.sparse_list = sorted(sparse_list)
                 elif self.sparsify == "random":
-                    sparse_list = np.array(range(n_env), dtype=int)
                     np.random.shuffle(sparse_list)
-                    sparse_list = sparse_list[0:self.n_sparse]
-                    self.sparse_list = sorted(sparse_list)
-                elif self.sparsify == "cur":
-                    sparse_list = list(range(n_env))
-            elif self.do_species is True:
-#               Added to avoid possible crushes in other methods
-                self.sparse_list = list(range(n_env))
-            else:
-                sparse_list = []
-                for z in species:
-                    sparse_list += list(np.where( np.array(species_list) == z )[0])
-                self.sparse_list = sorted(sparse_list)
+                    sparse_list = np.array(sparse_list)[0:self.n_sparse]
 
 #           Descriptors
             if descriptor == "quippy_soap":
@@ -344,12 +368,12 @@ class clMDS:
                             continue
                         if not self.sparsify_per_cluster:
                             if isinstance(self.sparsify, (list,np.ndarray)) or self.sparsify == "random":
-                                if n in sparse_list:       
+                                if n in sparse_list:   
                                     descriptor_list.append(q) 
-                            else:    
+                            else: 
                                 descriptor_list.append(q)                             
                         else:
-                            descriptor_list.append(q) 
+                            descriptor_list.append(q)
                         n += 1   
                 elif descriptor == "quippy_soap_turbo":   
                     q = {}
@@ -379,7 +403,7 @@ class clMDS:
             descriptor_list = np.array(descriptor_list)
             if isinstance(self.sparsify, str):
                 if self.sparsify == "cur":
-                    self.sparse_list = sorted(set(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1]))
+                    sparse_list = sorted(set(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1]))
             if self.verbose:
                 sys.stdout.write('\rComputing descriptors:%6.1f%%' % 100. )
                 sys.stdout.flush()
@@ -389,8 +413,8 @@ class clMDS:
                 self.config_type_list = np.concatenate([c for c in config_type_list])
             else:
                 self.config_type_list = np.array(config_type_list)
-            self.n_env = len(self.sparse_list)
-            self.sparse_list = list(self.sparse_list)
+            self.n_env = len(sparse_list)
+            self.sparse_list = sorted(sparse_list)
             self.descriptor = descriptor_list
             self.has_descriptor = True
         else:
@@ -1442,7 +1466,10 @@ class clMDS:
             raise Exception("You haven't run a cl-MDS coordinate calculation yet!")
 
         if carve_radius == None:
-            cutoff = self.cutoff
+            if descriptor == "quippy_soap_turbo":
+                cutoff = np.max(self.cutoff)
+            else:
+                cutoff = self.cutoff
         else:
             cutoff = carve_radius
 
