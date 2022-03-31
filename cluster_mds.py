@@ -139,7 +139,7 @@ class clMDS:
 #       Check if the user wants to use sparsification       
         if sparsify is not None:
             if isinstance(sparsify, (list, np.ndarray)):
-                sparsify = list(set(sparsify)) # Avoid repeated entries                                     <--- check this
+                sparsify = list(set(sparsify)) # do we need this? we already leave out repeated entries later        <-- comment
                 self.sparsify = sparsify
                 self.n_sparse = len(sparsify)
                 self.sparse_list = sorted(sparsify)
@@ -1153,6 +1153,10 @@ class clMDS:
                 s = a + b - 1
                 t = c + d - 1
 #               Decide if we should keep these warnings                                                         <-- comment 
+                if (s <= 0) or (t <= 0):
+                    print(i, ind_anchor[i], self.order_anchor[i])
+                    print(s, t)
+                    print(X_prev, X_new)
                 try:
                     assert (s > 0) & (t > 0)    
                 except:
