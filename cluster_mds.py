@@ -265,6 +265,7 @@ class clMDS:
                                              %s. Check it corresponds to the species in the database too." 
                                              % descriptor)                        
                     elif isinstance(quippy_string, dict):
+#                       Preferred format
                         Z = self.get_info_string(quippy_string[species[0]], label="species_Z", type_label=int, 
                                                  is_array=True)
                         n_Z = len(Z) 
@@ -275,6 +276,8 @@ class clMDS:
                             raise Exception("Your database has a different amount of species than the \
                                              given on the descriptor string.")
                     else:
+#                       Be careful with these formats (list, np.ndarray), the code assumes the strings are
+#                       ordered regarding Z
                         Z = self.get_info_string(quippy_string[0], label="species_Z", type_label=int, 
                                                  is_array=True)
                         n_Z = len(Z)  
@@ -437,7 +440,8 @@ class clMDS:
                     c = ( ( b.split('}')[0] ).split('{')[-1] ).split()
                     param = np.array(c).astype(type_label)
                 else:
-                    param = type_label( b.split()[0] )
+                    c = ( b.split('}')[0] ).split('{')[-1]
+                    param = type_label(c[0])
                 break
         else:
             param = None
@@ -1151,6 +1155,10 @@ class clMDS:
                 s = a + b - 1
                 t = c + d - 1
 #               Decide if we should keep these warnings                                                         <-- comment 
+                if (s <= 0) or (t <= 0):
+                    print(i, ind_anchor[i], self.order_anchor[i])
+                    print(s, t)
+                    print(X_prev, X_new)
                 try:
                     assert (s > 0) & (t > 0)    
                 except:
