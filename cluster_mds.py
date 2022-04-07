@@ -434,7 +434,7 @@ class clMDS:
             if label in a[i]:
                 b = a[i+1]
                 if is_array:
-                    c = ( ( b.split('}')[0] ).split('{')[1] ).split()
+                    c = ( ( b.split('}')[0] ).split('{')[-1] ).split()
                     param = np.array(c).astype(type_label)
                 else:
                     param = type_label( b.split()[0] )
@@ -901,7 +901,6 @@ class clMDS:
                     for a in ind_anchor[level]:
                         indices[level].append(np.arange(l, l+len(a), 1))
                         l+=len(a)
-                    print('Level: ', level)
                     for i in range(0, len(ind_anchor[level])):
                         med_i = all_M[level][i]
                         for j in range(i+1, len(ind_anchor[level])):
@@ -923,7 +922,6 @@ class clMDS:
                                     w = 0.
                                 weight_med[np.ix_(indices[level][i], indices[level_k][k])] = w
                                 weight_med[np.ix_(indices[level_k][k], indices[level][i])] = w
-                print('Medoids weight: ', weight_med.shape)
                 dist_anchor = np.sqrt(1 + (dist_anchor**2 -1)*weight_med)
 
             mds_anchor = embedding_h.fit_transform(dist_anchor, weights=W)
@@ -1153,10 +1151,6 @@ class clMDS:
                 s = a + b - 1
                 t = c + d - 1
 #               Decide if we should keep these warnings                                                         <-- comment 
-                if (s <= 0) or (t <= 0):
-                    print(i, ind_anchor[i], self.order_anchor[i])
-                    print(s, t)
-                    print(X_prev, X_new)
                 try:
                     assert (s > 0) & (t > 0)    
                 except:
@@ -1169,7 +1163,6 @@ class clMDS:
 #                   Small clusters shortcut
                     self.sparse_coordinates[ind_anchor[i],:] = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
                     result_homography = self.sparse_coordinates[ind_anchor[i],:]
-                    print(i, "homography (small cluster)")
                 else:
                     transf_prev = np.dot(mds_clusters[prev_clusters[i],:]- X_prev[1,:], T_prev)
                     transf_prev_homog = np.concatenate((transf_prev, np.ones((len(transf_prev),1))), axis=1)
