@@ -66,7 +66,8 @@ class clMDS:
                 String with the descriptor info.
             *cutoff = float, [float,float], None(default)
                 Radius cutoff used in SOAP descriptors (first option for quippy_soap,
-                second one for quippy_soap_turbo).
+                second one for quippy_soap_turbo). Ignored when param. descriptor_string
+                isn't None.
             *do_species = list of str, None(default)
                 Selection of species which will be considered. If None, all species
                 in atoms are taken into account.
@@ -135,6 +136,7 @@ class clMDS:
                 raise Exception("If you define a descriptor, you must also provide an atoms filename")
             self.descriptor_type = descriptor
             self.descriptor_string = descriptor_string
+            
 
 #       Check if the user wants to use sparsification       
         if sparsify is not None:
@@ -249,6 +251,9 @@ class clMDS:
                                          given on the descriptor string.")
 #                   Take cutoff and average kernel from descriptor string
                     cutoff = self.get_info_string(quippy_string, label="cutoff", type_label=float)
+                    if self.cutoff:
+                        print('The information included in descriptor_string is used instead of the param. cutoff:')
+                        print('   Chosen cutoff(s) =', cutoff)
                     average = self.get_info_string(quippy_string, label="average")     
                     self.cutoff = cutoff
                     self.average_kernel = average
@@ -302,7 +307,10 @@ class clMDS:
                             raise Exception("soap_turbo uses two cutoff (soft and hard cutoff) per specie, \
                                              please include both in the descriptor string.")
                         cutoff.append(rsoft)
-                        cutoff.append(rhard) 
+                        cutoff.append(rhard)
+                    if self.cutoff:
+                        print('The information included in descriptor_string is used instead of the param. cutoff:')
+                        print('   Chosen cutoff(s) =', cutoff)
                     self.cutoff = cutoff
 
 #           Get the number of environments 
@@ -440,7 +448,7 @@ class clMDS:
                     c = ( ( b.split('}')[0] ).split('{')[-1] ).split()
                     param = np.array(c).astype(type_label)
                 else:
-                    c = ( b.split('}')[0] ).split('{')[-1]
+                    c = ( ( b.split('}')[0] ).split('{')[-1] ).split()
                     param = type_label(c[0])
                 break
         else:
@@ -1155,10 +1163,6 @@ class clMDS:
                 s = a + b - 1
                 t = c + d - 1
 #               Decide if we should keep these warnings                                                         <-- comment 
-                if (s <= 0) or (t <= 0):
-                    print(i, ind_anchor[i], self.order_anchor[i])
-                    print(s, t)
-                    print(X_prev, X_new)
                 try:
                     assert (s > 0) & (t > 0)    
                 except:
