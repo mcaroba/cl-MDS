@@ -757,8 +757,11 @@ class clMDS:
                     mds_clusters[ind_clusters[i]] = np.zeros((1,2)) # avoid sklearn RuntimeWarning
                 else:
                     mds_clusters[ind_clusters[i]] = embedding_cl.fit_transform(dist_clusters[i])
+                if L == 4:
+                    h = spatial.ConvexHull( mds_clusters[ind_clusters[i]], qhull_options=precision )
+                    ind_clusters[i] = np.array(ind_clusters[i])[h.vertices]
                 mds_A.append( mds_clusters[ind_clusters[i],:] )
-                ind_A.append( np.array(ind_clusters[i]) )
+                ind_A.append( ind_clusters[i] )
                 continue
             if L - 1 < 70:
                 M = np.where(ind_medoids[i] == ind_clusters[i])[0][0]
@@ -966,7 +969,6 @@ class clMDS:
         self.sparse_coordinates = self.sparse_coordinates[ind_dist_inv]
         self.all_transformations = T_hierarchy
         self.ind_anchor = ind_anchor
-
         sparse_clusters = {}
         sparse_cluster_indices = np.empty(len(self.dist_matrix), dtype=int)
         for i in range(0, hierarchy[0]):
@@ -1130,7 +1132,7 @@ class clMDS:
                 x_new = self.mds_anchor[N_anchor[i]:N_anchor[i+1], :]
                 self.sparse_coordinates[ind_anchor[i],:] = x_new
                 self.transformation.append( [[x_new - x_prev]] )
-                print_label.append("translation")
+                print_label.append("affine (only translation)")
                 continue
             indices = ind_anchor[i][self.order_anchor[i]]
             X_prev = mds_clusters[indices,:]
@@ -1149,9 +1151,9 @@ class clMDS:
                     product = np.dot(mds_clusters[prev_clusters[i], :] - X_prev[1,:], T)
                     self.sparse_coordinates[prev_clusters[i], :] = product + X_new[1,:]
                 if i in self.do_linear_transf:
-                    print_label.append("linear (using 4 anchor points)")
+                    print_label.append("affine (overdetermined)")
                 else:
-                    print_label.append("linear")
+                    print_label.append("affine")
 #           CASE 3: cluster with 4 non-pathological anchor points (homography transf.)
             elif len(self.order_anchor[i]) == 4:
                 axis = np.array([[1,0],[0,0],[0,1]])     
@@ -1193,7 +1195,7 @@ class clMDS:
                 else:
                     self.sparse_coordinates[prev_clusters[i],:] = result_linear
                     self.transformation.append( [X_prev[1,:], T_lin, X_new[1,:]] )
-                    print_label.append("linear (homography was rejected)")
+                    print_label.append("affine (homography was rejected)")
             else:
                 raise Warning("There must be something wrong before cluster %i, check the list of anchor points: "
                                % clusters[i], ind_anchor)
