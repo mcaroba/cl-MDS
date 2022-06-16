@@ -732,6 +732,10 @@ class clMDS:
 
         ind_medoids = np.array(ind_medoids)
         dist_clusters = [dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])] for i in range(0, n_clusters)]
+        g=0
+        for i in ind_clusters:
+            g+=len(ind_clusters[i])
+        print(g, len(ind_dist), len(ind_dist_inv))
 
 #       Anchor points and MDS embedding of the initial clusters
         if len(param_anchor) != 3:
@@ -751,15 +755,12 @@ class clMDS:
                                   % (float(i)*100./float(hierarchy[0])) )
                 sys.stdout.flush()
             L = len(ind_clusters[i])
-            if L <= 4:
+            if L < 4:
                 pot_indices[i] = np.arange(0, L, 1)
                 if L == 1:
                     mds_clusters[ind_clusters[i]] = np.zeros((1,2)) # avoid sklearn RuntimeWarning
                 else:
                     mds_clusters[ind_clusters[i]] = embedding_cl.fit_transform(dist_clusters[i])
-                if L == 4:
-                    h = spatial.ConvexHull( mds_clusters[ind_clusters[i]], qhull_options=precision )
-                    ind_clusters[i] = np.array(ind_clusters[i])[h.vertices]
                 mds_A.append( mds_clusters[ind_clusters[i],:] )
                 ind_A.append( ind_clusters[i] )
                 continue
@@ -797,7 +798,10 @@ class clMDS:
 
         self.local_sparse_coordinates = mds_clusters[ind_dist_inv]
 
-
+        g=0
+        for i in ind_clusters:
+            g+=len(ind_clusters[i])
+        print(g, len(ind_dist), len(ind_dist_inv))
 #       Hierarchy levels
         n_levels = len(hierarchy)
         M_prev = ind_medoids
@@ -913,6 +917,7 @@ class clMDS:
                 for level in range(0, n_levels-1):
                     eta_max = np.sum(eta[:level+1])
                     indices[level] = []
+                    print(len(ind_anchor[level]))
                     for a in ind_anchor[level]:
                         indices[level].append(np.arange(l, l+len(a), 1))
                         l+=len(a)
@@ -969,8 +974,12 @@ class clMDS:
         self.sparse_coordinates = self.sparse_coordinates[ind_dist_inv]
         self.all_transformations = T_hierarchy
         self.ind_anchor = ind_anchor
+        g=0
+        for i in ind_clusters:
+            g+=len(ind_clusters[i])
+        print(g, len(ind_dist), len(ind_dist_inv))
         sparse_clusters = {}
-        sparse_cluster_indices = np.empty(len(self.dist_matrix), dtype=int)
+        sparse_cluster_indices = -np.ones(len(self.dist_matrix), dtype=int)
         for i in range(0, hierarchy[0]):
             temp = [np.where(ind_dist_inv == j)[0] for j in ind_clusters[i]]
             cluster = np.sort( np.concatenate((temp)) )
