@@ -732,10 +732,6 @@ class clMDS:
 
         ind_medoids = np.array(ind_medoids)
         dist_clusters = [dist_matrix[np.ix_(ind_clusters[i], ind_clusters[i])] for i in range(0, n_clusters)]
-        g=0
-        for i in ind_clusters:
-            g+=len(ind_clusters[i])
-        print(g, len(ind_dist), len(ind_dist_inv))
 
 #       Anchor points and MDS embedding of the initial clusters
         if len(param_anchor) != 3:
@@ -798,10 +794,6 @@ class clMDS:
 
         self.local_sparse_coordinates = mds_clusters[ind_dist_inv]
 
-        g=0
-        for i in ind_clusters:
-            g+=len(ind_clusters[i])
-        print(g, len(ind_dist), len(ind_dist_inv))
 #       Hierarchy levels
         n_levels = len(hierarchy)
         M_prev = ind_medoids
@@ -974,10 +966,6 @@ class clMDS:
         self.sparse_coordinates = self.sparse_coordinates[ind_dist_inv]
         self.all_transformations = T_hierarchy
         self.ind_anchor = ind_anchor
-        g=0
-        for i in ind_clusters:
-            g+=len(ind_clusters[i])
-        print(g, len(ind_dist), len(ind_dist_inv))
         sparse_clusters = {}
         sparse_cluster_indices = -np.ones(len(self.dist_matrix), dtype=int)
         for i in range(0, hierarchy[0]):
