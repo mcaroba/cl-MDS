@@ -1210,9 +1210,11 @@ class clMDS:
 
 
 #   This is a user friendly function that returns the clusters and medoids of the sparse set
-    def get_sparse_coordinates(self, hierarchy):
+    def get_sparse_coordinates(self, hierarchy, init_medoids="isolated", n_iso_med=1, eta=0.,
+                               weight_anchor_mds=None):
         if not self.has_clmds:
-            self.cluster_MDS(hierarchy = hierarchy)
+            self.cluster_MDS(hierarchy = hierarchy, init_medoids = init_medoids,
+                             n_iso_med = n_iso_med, eta = eta, weight_anchor_mds = weight_anchor_mds)
 
         ext_coordinates = np.empty([self.n_env, 3])
         ext_coordinates[0:self.n_env, 0:2] = self.sparse_coordinates
