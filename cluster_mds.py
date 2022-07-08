@@ -162,6 +162,7 @@ class clMDS:
                 elif sparsify == "cur":
                     sparse_list = cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]
                     self.sparse_list = list(set(sparse_list))
+                self.n_env = len(self.sparse_list)
                 self.dist_matrix = dist_matrix[np.ix_(self.sparse_list, self.sparse_list)]
 
 
@@ -1213,7 +1214,7 @@ class clMDS:
         if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy)
 
-        ext_coordinates = np.empty([self.n_env,3])
+        ext_coordinates = np.empty([self.n_env, 3])
         ext_coordinates[0:self.n_env, 0:2] = self.sparse_coordinates
         ext_coordinates[0:self.n_env, 2] = self.sparse_cluster_indices
 
