@@ -13,7 +13,7 @@ print("________________________________________________________")
 data = clmds.clMDS(atoms='qm9_demo.xyz',
                    descriptor="quippy_soap_turbo",
                    cutoff=[2.5, 3.], do_species=['F'],
-                   sparsify='random', n_sparse=100)
+                   sparsify='random', n_sparse=300)
 
 
 print("________________________________________________________")
