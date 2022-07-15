@@ -340,7 +340,7 @@ class clMDS:
                                              please include both in the descriptor string.")
                         cutoff.append(rsoft)
                         cutoff.append(rhard)
-                    if self.cutoff:
+                    if self.cutoff and for_atoms_estim is False:
                         print('The information included in descriptor_string is used instead of cutoff param.:')
                         print('   Chosen cutoff(s) =', cutoff)
                     self.cutoff = cutoff
