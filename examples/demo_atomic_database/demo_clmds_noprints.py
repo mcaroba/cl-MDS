@@ -26,9 +26,9 @@ C2 = data.sparse_cluster_indices
 all_F = np.where(np.array(data.species_list) == 'F')[0]
 ind_F = np.setdiff1d(all_F, data.sparse_list)
 
-data.compute_estim_coordinates(indices=ind_F)
-Y_estim = data.all_coordinates
-C_estim = data.all_cluster_indices
+data.compute_atoms_estim_coordinates(indices=ind_F)
+Y_estim = data.estim_coordinates
+C_estim = data.estim_cluster_indices
 
 
 ##############################################################

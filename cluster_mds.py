@@ -69,8 +69,11 @@ class clMDS:
                 second one for quippy_soap_turbo). Ignored when param. descriptor_string
                 isn't None.
             *do_species = list of str, None(default)
-                Selection of species which will be considered. If None, all species
-                in atoms are taken into account.
+                Selection of chemical species to be considered. 
+                If None, all species in atoms are taken into account and the term
+                "complete database" refers to the whole atoms file (self.n_env == self.all_env).
+                Otherwise, it denotes the subset of atoms with the selected chemical species
+                (self.n_env != self.all_env).
             *average_kernel = bool
                 If True, the average kernel for each structure is computed instead of
                 per atom (available only with quippy_soap).
@@ -78,7 +81,8 @@ class clMDS:
         - sparsification:
             *sparsify = str, list/array, None(default)
                 Sparsification method from sparse_options list.
-                Alternatively, list/array with the indices of the desired sparse set.
+                Alternatively, list/array with the indices of the desired sparse set
+                within the whole atoms file (independently of do_species param.).
             *n_sparse = int, None(default)
                 Number of elements in the sparse set (needed for sparsify=str, ignore
                 otherwise).
@@ -95,7 +99,6 @@ class clMDS:
         self.verbose = verbose
         self.sparsify = sparsify
         self.sparsify_per_cluster = sparsify_per_cluster
-        self.n_sparse = n_sparse
         self.max_n_sparse = max_n_sparse
         self.is_clustered = False
         self.has_clmds = False
@@ -120,8 +123,33 @@ class clMDS:
                 from ase.io import read, write
                 self.atoms = read(atoms, index=":")
             except:
-#               This error appears also when atoms has a wrong file extension, should we mention this too?      <-- comment
-                raise Exception("I couldn't find an ASE installation; you need ASE to pass an atoms filename!")
+                raise Exception("I couldn't find the atoms file or an ASE installation; \
+                                 you need ASE to pass an atoms filename!")
+#           Get chemical species and the number of environments
+            species_list = []
+            for ats in self.atoms:
+                species_list += ats.get_chemical_symbols()
+            self.species_list = species_list
+            if self.average_kernel is True:
+                n_env = len(self.atoms)
+                self.all_env = n_env
+            else:
+                self.all_env = len(species_list)
+            if do_species is None:
+                n_env = len(species_list)
+            else:
+                self.do_species = set(do_species)
+                try:
+                    assert self.do_species <= set(species_list)
+                except:
+                    raise Exception("do_species param. has a chemical symbol that isn't in your \
+                                     database, check it: ", self.do_species - set(species_list))
+                do_species_list = []
+                for z in self.do_species:
+                    do_species_list += list(np.where(np.array(species_list) == z)[0])
+                self.do_species_list = np.array(do_species_list)
+                n_env = len(do_species_list)
+            self.n_env = n_env
         else:
             self.atoms = None
 
@@ -137,41 +165,51 @@ class clMDS:
             self.descriptor_type = descriptor
             self.descriptor_string = descriptor_string
             
-
-#       Check if the user wants to use sparsification       
+#       Check if the user wants to use sparsification
+        sparse_list = np.arange(0, self.n_env, 1) # added to avoid possible crushes in other methods          <-- check this
+        if do_species is not None:
+            sparse_list = self.do_species_list
         if sparsify is not None:
             if isinstance(sparsify, (list, np.ndarray)):
-                sparsify = list(set(sparsify)) # do we need this? we already leave out repeated entries later        <-- comment
-                self.sparsify = sparsify
-                self.n_sparse = len(sparsify)
-                self.sparse_list = sorted(sparsify)
+                sparsify = np.unique(sparsify)
+                sparse_list = list(sparsify)
+                n_sparse = len(sparse_list)
+                if n_sparse > self.n_env:
+                    raise Exception("The sparse set can't be larger than the complete dataset")
+                if do_species is not None:
+                    try:
+                        assert set(sparsify) <= set(self.do_species_list)
+                    except:
+                        raise Exception("If you use do_species param., your sparse set can't have atoms \
+                                         from other chemical species. Check the indices!")
             elif sparsify not in sparse_options:
                 raise Exception("The sparsify option you chose is not available. Choose one of the following: ",
                                 sparse_options, " or provide a list of indices")
             else:
                 if n_sparse is None:
                     raise Exception("If you choose a sparsify option, you need to pass the n_sparse parameter")
-                self.sparsify = sparsify
-                self.n_sparse = n_sparse
-#               Implement the "optimized sparse set" as a sparsify option                                           <--- comment  
-            if self.has_dist_matrix:
+                elif n_sparse > self.n_env:
+                    raise Exception("The sparse set can't be larger than the complete dataset")
                 if sparsify == "random":
-                    sparse_list = np.arange(0, len(self.dist_matrix), 1)
                     np.random.shuffle(sparse_list)
-                    self.sparse_list = sorted(sparse_list[:n_sparse])
-                elif sparsify == "cur":
-                    sparse_list = cur.cur_decomposition(self.dist_matrix, n_sparse)[-1]
-                    self.sparse_list = list(set(sparse_list))
-                self.n_env = len(self.sparse_list)
-                self.dist_matrix = dist_matrix[np.ix_(self.sparse_list, self.sparse_list)]
+                    sparse_list = sorted(sparse_list[:n_sparse])
+#               Implement the "optimized sparse set" as a sparsify option                                           <--- comment
+            if self.has_dist_matrix:
+                if isinstance(sparsify, str) and sparsify == "cur":
+                    sparse_list = np.unique(cur.cur_decomposition(self.dist_matrix, n_sparse)[-1])
+                self.dist_matrix = dist_matrix[np.ix_(sparse_list, sparse_list)]
+                self.all_dist_matrix = dist_matrix
 
+        self.sparse_list = list(sparse_list)
+        self.n_sparse = len(sparse_list)
 
 
 #   This method takes care of adding a descriptor to the clMDS class:
-    def build_descriptor(self, zeta=6):
+    def build_descriptor(self, zeta=6, for_atoms_estim=False):
         if not hasattr(self, 'descriptor_type'):
             raise Exception("You must define a descriptor, check the implemented options")
 
+#       Descriptor string
         descriptor = self.descriptor_type
         descriptor_string = self.descriptor_string
         if descriptor in ["quippy_soap", "quippy_soap_turbo"]:
@@ -179,11 +217,7 @@ class clMDS:
             from quippy.descriptors import Descriptor
             from quippy.convert import ase_to_quip
             self.zeta = zeta
-            species_list = []
-            for ats in self.atoms:
-                species_list += ats.get_chemical_symbols()
-            self.species_list = species_list
-            species = list(set(species_list)) 
+            species = list(set(self.species_list)) 
 #           This uses some default SOAP parameters
             if descriptor_string is None:
                 species_string = ""
@@ -238,9 +272,6 @@ class clMDS:
                                            scaling_mode="polynomial" species_Z={' + species_string + '} \
                                            n_species=' + str(n_Z) + ' central_index=' + str(i+1) + \
                                            ' central_weight={' + central_w + '}' 
-#                        if self.average_kernel:
-#                            quippy_string[z] = quippy_string[z] + " average=T" 
-
 #           This uses a user-defined SOAP/SOAP_TURBO
             else:
                 quippy_string = self.descriptor_string
@@ -310,36 +341,21 @@ class clMDS:
                         cutoff.append(rsoft)
                         cutoff.append(rhard)
                     if self.cutoff:
-                        print('The information included in descriptor_string is used instead of the param. cutoff:')
+                        print('The information included in descriptor_string is used instead of cutoff param.:')
                         print('   Chosen cutoff(s) =', cutoff)
                     self.cutoff = cutoff
 
-#           Get the number of environments 
-            if self.do_species is not None:
-                species = list(set(self.do_species))
-            if self.average_kernel:
-                n_env = len(self.atoms)
+#           Check sparsify hasn't change (required for coord. estimation)
+            if for_atoms_estim is False:
+                sparse_list = np.array(self.sparse_list)
             else:
-                n_env = sum(len(ats) for ats in self.atoms)
-            self.all_env = n_env
-#           Check if there is sparsification
-            if self.do_species is None:
-                sparse_list = list(range(n_env)) # added to avoid possible crushes in other methods
-            else:
-                sparse_list = []
-                for z in species:
-                    sparse_list += list(np.where( np.array(species_list) == z )[0])
-            if self.sparsify is not None:
-                if isinstance(self.sparsify, (list, np.ndarray)):
-                    if len(self.sparsify) > n_env:
-                        raise Exception("The sparse set can't be larger than the complete dataset")
-                    else: 
-                        sparse_list = np.array(self.sparsify, dtype=int)
-                elif self.sparsify == "random":
-                    np.random.shuffle(sparse_list)
-                    sparse_list = np.array(sparse_list)[0:self.n_sparse]
+                sparse_list = np.array(for_atoms_estim)
 
 #           Descriptors
+            if self.verbose:
+                print("")
+            if self.do_species is not None:
+                species = self.do_species
             if descriptor == "quippy_soap":
                 d = Descriptor(quippy_string)
             elif descriptor == "quippy_soap_turbo":
@@ -347,11 +363,9 @@ class clMDS:
             n = 0
             descriptor_list = []
             config_type_list = []
-            if self.verbose:
-                print("")
             for ats in self.atoms:
                 if self.verbose:
-                    sys.stdout.write('\rComputing descriptors:%6.1f%%' % (float(n)*100./float(n_env)) )
+                    sys.stdout.write('\rComputing descriptors:%6.1f%%' % (float(n)*100./float(self.all_env)) )
                     sys.stdout.flush()
                 if not self.average_kernel:
                     if "config_type" in ats.info:
@@ -364,18 +378,18 @@ class clMDS:
                     else:
                         config_type_list.append(None)
                 if self.sparsify is not None and not self.sparsify_per_cluster: 
-                    if isinstance(self.sparsify, (list, np.ndarray)) or self.sparsify=="random":
+                    if isinstance(self.sparsify, (list, np.ndarray)) or self.sparsify == "random":
                         in_sparse = (sparse_list >= n) & (sparse_list < n + len(ats))
                         if not (in_sparse).any():
                             n += len(ats)
                             continue
-                if descriptor == "quippy_soap":                
+                if descriptor == "quippy_soap":
                     a = ase_to_quip(ats)
                     a.set_cutoff(cutoff)
                     a.calc_connect()
                     qs = d.calc_descriptor(a)
                     for q in qs:
-                        if species_list[n] not in species:
+                        if self.species_list[n] not in species:
                             n += 1
                             continue
                         if not self.sparsify_per_cluster:
@@ -395,27 +409,27 @@ class clMDS:
                         a = ase_to_quip(ats)
                         a.set_cutoff(rcut_hard)    
                         a.calc_connect()
-                        q[z] = d[z].calc_descriptor(a) 
-                    ind_ats = []
-                    ats_Z = np.array(ats.get_chemical_symbols())
-                    for z in species:
-                        ind_ats += list(np.where(ats_Z == z)[0])
-                    for i in sorted(ind_ats):
+                        q[z] = d[z].calc_descriptor(a)
+                    for i in range(0, len(ats)):
                         symb = ats[i].symbol
-                        if not self.sparsify_per_cluster:
-                            if isinstance(self.sparsify, (list,np.ndarray)) or self.sparsify == "random":
-                                if n + i in sparse_list:       
-                                    descriptor_list.append(q[symb][N[symb]])  
-                            else:    
-                                descriptor_list.append(q[symb][N[symb]])                                 
-                        else:
+                        if symb not in species:
+                            continue
+                        if self.sparsify_per_cluster:
                             descriptor_list.append(q[symb][N[symb]]) 
+                        elif isinstance(self.sparsify, str) and self.sparsify == "cur":
+                            descriptor_list.append(q[symb][N[symb]]) 
+                        else:
+                            if n + i in sparse_list:       
+                                descriptor_list.append(q[symb][N[symb]])  
                         N[symb] += 1 
                     n += len(ats)
             descriptor_list = np.array(descriptor_list)
-            if isinstance(self.sparsify, str):
-                if self.sparsify == "cur":
-                    sparse_list = sorted(set(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1]))
+            if for_atoms_estim is False:
+                if isinstance(self.sparsify, str) and self.sparsify == "cur":
+                    sparse_list = np.unique(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1])
+                    descriptor_list = descriptor_list[sparse_list]
+                    self.sparse_list = list(self.do_species_list[sparse_list])
+                    self.n_sparse = len(sparse_list)
             if self.verbose:
                 sys.stdout.write('\rComputing descriptors:%6.1f%%' % 100. )
                 sys.stdout.flush()
@@ -425,8 +439,6 @@ class clMDS:
                 self.config_type_list = np.concatenate([c for c in config_type_list])
             else:
                 self.config_type_list = np.array(config_type_list)
-            self.n_env = len(sparse_list)
-            self.sparse_list = sorted(sparse_list)
             self.descriptor = descriptor_list
             self.has_descriptor = True
         else:
@@ -466,23 +478,19 @@ class clMDS:
             if not self.has_descriptor:
                 self.build_descriptor()
             
-            n_env = self.n_env
-            descriptor = self.descriptor
-            if self.sparsify is not None:
-                if len(descriptor) > n_env:
-                    descriptor = descriptor[self.sparse_list]
-            dist_matrix = np.zeros([n_env, n_env])
+            L = len(self.descriptor)
+            dist_matrix = np.zeros([L, L])
             n = 0
             if self.verbose:
                 print("")
-            for i in range(0, n_env):
+            for i in range(0, L):
                 if self.verbose:
-                    sys.stdout.write('\rComputing dist_matrix:%6.1f%%' % (float(n)*100./float(n_env*(n_env+1)/2)) )
+                    sys.stdout.write('\rComputing dist_matrix:%6.1f%%' % (float(n)*100./float(L*(L+1)/2)) )
                     sys.stdout.flush()
 #               Do this to remove numerical round-off problems
                 dist_matrix[i,i] = 0.
-                for j in range(i+1, n_env):
-                    prod = np.dot(descriptor[i], descriptor[j])**self.zeta
+                for j in range(i+1, L):
+                    prod = np.dot(self.descriptor[i], self.descriptor[j])**self.zeta
                     if prod <= 1. - precision:
                         dist_matrix[i][j] = np.sqrt(1. - prod)
                         dist_matrix[j][i] = np.sqrt(1. - prod)
@@ -501,7 +509,7 @@ class clMDS:
             raise Exception("No descriptor defined: nothing to do!")
 
 
-#   This function ensures a minimum amount of points per cluster in the sparse set
+#   This function ensures a minimum amount of points per cluster in the sparse set (DO NOT USE, IN DEVELOPMENT) <-- comment
     def cluster_sparsification(self, n_clusters, init_medoids="random", n_iso_med=None, 
                                iter_med=1000, tmax=100):
         if not self.sparsify_per_cluster:
@@ -511,7 +519,7 @@ class clMDS:
         self.n_sparse = self.n_sparse*n_clusters
         if not self.has_descriptor:
             self.build_descriptor()
-        elif len(self.descriptor) < self.all_env:
+        elif len(self.descriptor) < self.n_env:
             self.build_descriptor()
         self.build_dist_matrix()
         dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
@@ -524,7 +532,7 @@ class clMDS:
 #       Change this part (do not take into account the repeated entries to add new sparse entries)            <-- comment
         n_C = []
         C_incomplete = []
-        C_indices = np.zeros(self.n_env, dtype=int)
+        C_indices = np.zeros(self.n_sparse, dtype=int)
         for i in range(0, n_clusters):
             all_Ci = np.concatenate(( [np.where(ind_dist == j)[0] for j in C[i]] ))
             n_C.append(len(all_Ci))
@@ -532,7 +540,7 @@ class clMDS:
             if n_C[i] < n_sparse:
                 C_incomplete.append(i)
         if C_incomplete:
-            non_sparse_list = [i for i in range(0, self.all_env) if i not in sparse_list]
+            non_sparse_list = [i for i in range(0, self.n_env) if i not in sparse_list]
             np.random.shuffle(non_sparse_list)
             for i in non_sparse_list:
 #               Assign each non_sparse point to a cluster
@@ -575,7 +583,7 @@ class clMDS:
                     C_indices = np.array([ind for i, ind in enumerate(C_indices) if i not in out_sparse])
             new_indices = np.argsort(sparse_list)
             C_indices = C_indices[ new_indices ]
-            self.n_env = len(sparse_list)
+            self.n_sparse = len(sparse_list)
             self.sparse_list = sorted(sparse_list)
             self.n_sparse = n_sparse
             self.build_dist_matrix()
@@ -712,7 +720,7 @@ class clMDS:
 #       Finest clustering (initial hierarchy level)
         if not self.sparsify_per_cluster: 
             if not self.has_dist_matrix:
-                self.build_dist_matrix() 
+                self.build_dist_matrix()
             dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
             if isinstance(init_medoids, (np.ndarray, list)):
 #               The indices given by the user are regarding the FULL dist. matrix (including
@@ -761,7 +769,7 @@ class clMDS:
                 mds_A.append( mds_clusters[ind_clusters[i],:] )
                 ind_A.append( ind_clusters[i] )
                 continue
-            if L - 1 < 70:
+            elif L - 1 < 70:
                 M = np.where(ind_medoids[i] == ind_clusters[i])[0][0]
                 pot_indices[i] = np.setdiff1d( np.arange(0, L, 1), [M] )
                 param_method = 0
@@ -794,6 +802,7 @@ class clMDS:
             print("")
 
         self.local_sparse_coordinates = mds_clusters[ind_dist_inv]
+
 
 #       Hierarchy levels
         n_levels = len(hierarchy)
@@ -910,7 +919,6 @@ class clMDS:
                 for level in range(0, n_levels-1):
                     eta_max = np.sum(eta[:level+1])
                     indices[level] = []
-                    print(len(ind_anchor[level]))
                     for a in ind_anchor[level]:
                         indices[level].append(np.arange(l, l+len(a), 1))
                         l+=len(a)
@@ -1216,9 +1224,9 @@ class clMDS:
             self.cluster_MDS(hierarchy = hierarchy, init_medoids = init_medoids,
                              n_iso_med = n_iso_med, eta = eta, weight_anchor_mds = weight_anchor_mds)
 
-        ext_coordinates = np.empty([self.n_env, 3])
-        ext_coordinates[0:self.n_env, 0:2] = self.sparse_coordinates
-        ext_coordinates[0:self.n_env, 2] = self.sparse_cluster_indices
+        ext_coordinates = np.empty([self.n_sparse, 3])
+        ext_coordinates[0:self.n_sparse, 0:2] = self.sparse_coordinates
+        ext_coordinates[0:self.n_sparse, 2] = self.sparse_cluster_indices
 
         return ext_coordinates
 
@@ -1261,166 +1269,333 @@ class clMDS:
 
 
 
-
-#   This is a user friendly function that returns the clusters and medoids of the complete set
-#   or of the specified indices (CHECK THIS METHOD)                                                                 <-- comment
-    def get_all_coordinates(self, hierarchy, sparse_info=False, precision=1e-8, reg_param=0.001, indices=None):
+#   Given a list/array of indices, this method assigns each point to a cluster considering their
+#   dissimilarity to the sparse medoids
+    def assign_pts_to_cluster(self, indices=None):
         """
-        This function calls compute_estim_coordinates() to obtain an estimation for all the points
-        in the dataset (default, indices=None) or for a given array of indices.
-        If already computed, you can still use it to get the array of coordinates and clusters.
+        This method returns a list of cluster indices for the points given in indices param. Each
+        point is assigned to the cluster whose medoid has the lowest dissimilarity with that point.
+        
+        If indices=None (default), the complete distance matrix is used. Otherwise, please provide:
+            (1) an array/list of indices (only available when sparsify is used),
+            (2) a 2-dim. array with the distances of these points to the sparse medoids, that is,
+                shape == (n. of points, n. of medoids).
         """
-        if hasattr(self, 'hierarchy'):
-            if hierarchy != self.hierarchy:
-                print("Warning: You provided a different hierarchy before, ", self.hierarchy)
-                print("It will be used instead of the given one, please check before next time")  
-                hierarchy = self.hierarchy
+#       Classify all indices considering the sparse clustering
+        if len(np.shape(indices)) == 2:
+            dist_matrix = indices
+        else:
+            if self.sparsify is None:
+                raise Exception("You need to use sparsify or provide a matrix with the distances to the \
+                                 sparse medoids for these indices!")
+            sparse_list = np.array(self.sparse_list)
+            if indices is None:
+                indices = np.setdiff1d(np.arange(0, self.n_env, 1), sparse_list)
+            dist_matrix = self.all_dist_matrix[np.ix_(indices, sparse_list[self.sparse_medoids])]
 
-        if not self.has_clmds:
-            self.cluster_MDS(hierarchy = hierarchy)
+        cluster_indices = np.argmin(dist_matrix, axis=1)
 
-        if not self.has_estimation:
-            self.compute_estim_coordinates(precision=precision, reg_param=reg_param, indices=indices)
-
-        ext_coordinates = np.empty([self.all_env,3])
-        ext_coordinates[0:self.all_env, 0:2] = self.all_coordinates
-        ext_coordinates[0:self.all_env, 2] = self.all_cluster_indices
-
-        if sparse_info:
-            A = self.extract_transf_info(info="anchor")[1][0]
-            labels = np.zeros(self.all_env)
-            for i, ind in enumerate(self.sparse_list):
-                ind_C = self.all_cluster_indices[ind]
-                if i in self.sparse_medoids:
-                    labels[ind] = 3
-                elif i in A[ind_C]:
-                    labels[ind] = 2
-                else:
-                    labels[ind] = 1
-            ext_coordinates = np.concatenate((ext_coordinates, labels[:,None]), axis=1)
-
-        return ext_coordinates
+        return cluster_indices
 
 
-#   This method gives a "cheap" estimation of the MDS coordinates of points not included in the sparse set
-#   If indices=None (default), the complete database is estimated. Otherwise, please provide an array or list of indices.
-    def compute_estim_coordinates(self, precision=1e-8, reg_param=0.001, indices=None):
-        hierarchy = self.hierarchy
-        sparse_list = self.sparse_list
-        all_env = self.all_env
+#   Given a list/array of indices, this method assigns each corresponding atom to a cluster
+#   considering its dissimilarity to the sparse medoids
+    def assign_atoms_to_cluster(self, indices=None, precision=1e-8, out_descriptor=False):
+        """
+        Classify new atomic data considering the sparse clustering. Each atom is assigned
+        to the cluster whose medoid has the lowest dissimilarity with that atom.
+
+        If indices=None, the complete database of length self.n_env is used. Otherwise,
+        a list/array of indices is expected.
+        """
 #       Get the descriptors of all the atoms left out of the sparse set or the given ones
+        sparse_list = self.sparse_list
+        sparsify = self.sparsify
         if indices is None:
-            indices = [i for i in range(0, all_env) if i not in sparse_list]
-        if len(self.descriptor) != all_env:
-            sparsify = self.sparsify
-            all_descriptor = np.zeros( (all_env, np.shape(self.descriptor)[1]) )
-            all_descriptor[sparse_list] = self.descriptor
-            self.sparsify = indices
-            self.build_descriptor()
-            all_descriptor[indices] = self.descriptor
-            self.descriptor = all_descriptor
+            if self.do_species is None:
+                indices = np.setdiff1d(np.arange(0, self.all_env, 1), sparse_list)
+            else:
+                indices = np.setdiff1d(self.do_species_list, sparse_list)
+        if len(self.descriptor) != self.n_env:
+            Q_sparse = self.descriptor
+            self.build_descriptor(for_atoms_estim=indices)
+            Q = self.descriptor
 #           Reassign the overwritten attributes
-            self.sparsify = sparsify
-            self.n_env = len(sparse_list)
-            self.sparse_list = sparse_list
+            self.descriptor = Q_sparse
+        else:
+            if self.do_species is None:
+                Q_sparse = self.descriptor[sparse_list,:]
+                Q = self.descriptor[indices,:]
+            else:
+                ind_sparse = [np.where(self.do_species_list == i)[0][0] for i in sparse_list]
+                ind_new = [np.where(self.do_species_list == k)[0][0] for k in indices]
+                Q_sparse = self.descriptor[ind_sparse,:]
+                Q = self.descriptor[ind_new,:]
 #       Classify them considering the clustering of the sparse set
-        cluster_indices = - np.ones(all_env, dtype=int)
-        cluster_indices[sparse_list] = self.sparse_cluster_indices
-        n_env = len(indices)
+        L = len(indices)
+        cluster_indices = - np.ones(L, dtype=int)
+        l = 0
         if self.verbose:
             print("")
-        for i, ind in enumerate(indices):
+        for i in range(0, L):
             if self.verbose:
-                sys.stdout.write('\rAssigning each point to cluster:%6.1f%%' % (float(i)*100./float(n_env)) )
+                sys.stdout.write('\rAssigning each point to cluster:%6.1f%%' % (float(l)*100./float(L)))
                 sys.stdout.flush()
-            dist_med = np.zeros(hierarchy[0])
-            for j in range(0, len(self.sparse_medoids)):
-                med = sparse_list[self.sparse_medoids[j]]
-                prod = np.dot(self.descriptor[ind], self.descriptor[med])**self.zeta 
+            if indices[i] in sparse_list:
+                temp = np.where(sparse_list == indices[i])[0][0]
+                cluster_indices[i] = self.sparse_cluster_indices[temp]
+                continue
+            dist_med = np.zeros(self.hierarchy[0])
+            for m, i_med in enumerate(self.sparse_medoids):
+                prod = np.dot(Q[i], Q_sparse[i_med])**self.zeta 
                 if prod <= 1. - precision:
-                    dist_med[j] =  np.sqrt(1. - prod)
+                    dist_med[m] =  np.sqrt(1. - prod)
                 else:
-                    dist_med[j] = 0.
-            cluster_indices[ind] = np.argmin(dist_med)           
+                    dist_med[m] = 0.
+            cluster_indices[i] = np.argmin(dist_med)    
+            l += 1       
         if self.verbose:
             sys.stdout.write('\rAssigning each point to cluster:%6.1f%%' % 100. )
             sys.stdout.flush()
             print("")
 
-#       Compute the transformation from kernel space to 2D
-        local_coordinates = np.zeros((all_env,2))       
-        transf_coordinates = np.zeros((all_env,2))
-        for i in range(0, hierarchy[0]):
+        if indices is None:
+            I = np.empty(self.all_env, dtype=int)
+            I[sparse_list] = self.sparse_cluster_indices
+            I[indices] = cluster_indices
+            if self.do_species is not None:
+                I = I[self.do_species_list]
+            cluster_indices = I
+
+        if out_descriptor:
+            return cluster_indices, Q
+
+        return cluster_indices
+
+
+#   This method transforms a distance matrix (N x N_sparse) to a 2-dim. Euclidean rep. using the
+#   information from a previous sparse cl-MDS. The N points must correspond to the same cluster (i_cluster)
+    def transform_dist_to_2d(self, i_cluster, dist_cluster):
+        T = self.all_transformations[i_cluster]["dist"]
+        local_coordinates = np.dot(dist_cluster, T)
+        transf_coordinates = local_coordinates
+        T_2d = self.all_transformations[i_cluster][0]["transf"] # check if we change hierarchy computations             <-- comment
+        if len(T_2d) == 1:
+#           Sparse cluster with 1 point (translation)
+            transf_coordinates = transf_coordinates + T_2d[0]
+        elif len(T_2d) == 3:
+#           Linear transformation
+            ref_prev, T_lin, ref_new = T_2d
+#           We need to keep track of the reference anchor point in each step
+            transf_coordinates = np.dot(transf_coordinates - ref_prev, T_lin) + ref_new    
+        else:
+#           Homography
+            ref_prev, T_prev, F, T_new_inv, ref_new = T_2d
+#           We need to keep track of the reference anchor point in each step
+            transf_coordinates = transf_coordinates - ref_prev
+            X_prev = np.dot(transf_coordinates, T_prev)
+            X_prev_homog = np.concatenate((X_prev, [1]))
+            X_new_homog =  np.dot(X_prev_homog, F)
+            X_new = X_new_homog/X_new_homog[-1]
+            transf_coordinates = np.dot(X_new[:2], T_new_inv)
+            transf_coordinates = transf_coordinates + ref_new
+        
+        return local_coordinates, transf_coordinates 
+
+
+
+#   This method gives a "cheap" estimation of the cl-MDS coordinates of points not included in the sparse set 
+    def compute_pts_estim_coordinates(self, indices, reg_param=0.001):
+        """
+        Computes an estimation of the 2-dimensional coordinates of the points given by the
+        indices param. or dist_info param., using the previously computed sparse transformations. 
+        This method is specific for distance matrices.
+
+        If indices=None (default), the complete distance matrix is used. Otherwise, please provide:
+            (1) an array/list of indices (only available when sparsify is used),
+            (2) a list where each member i is an array with its cluster index (first) and its distances
+                to its cluster sparse points (use self.assign_to_cluster_dist to obtain cluster info).
+        """
+        sparse_list = np.array(self.sparse_list)
+#       Classify all indices considering the sparse clustering
+        if isinstance(indices[0], (list, np.ndarray)):
+            cluster_indices = np.array([int(indices[k][0]) for k in range(0, len(indices))])
+        else:
+            cluster_indices = self.assign_pts_to_cluster(indices=indices) 
+
+#       Compute the transformation from distance space to 2-dim. Euclidean space
+        local_coordinates = np.zeros((len(indices),2))
+        transf_coordinates = np.zeros((len(indices),2))
+        for i in range(0, self.hierarchy[0]):
             if self.verbose:
                 print("")
-#           distance matrix per cluster
-            C = np.where(cluster_indices == i)[0] 
-            C_sparse = self.sparse_clusters[i]
-            if len(C_sparse) in [1, 2] and len(C) > 2:
-                print('NOTE: Cluster %i has only 1-2 sparse points. More sparse elements (3 minimum) are ' % i +
-                      'needed to get a proper estimation for the other cluster points.')
-            dist_cluster = np.empty([len(C), len(C_sparse)])
-            for j in range(0, len(C)):
-                if self.verbose:
-                    sys.stdout.write('\rEmbedding all data (cluster %i):%6.1f%%' % (i, float(j)*100./float(len(C))) )
-                    sys.stdout.flush()
-                if C[j] in sparse_list:
-                    ind_sparse = np.where(sparse_list == C[j])[0]
-                    assert ind_sparse in C_sparse
-                    dist_cluster[j,:] = self.dist_matrix[ind_sparse, C_sparse]  
-                    continue
-                for k in range(0, len(C_sparse)):
-                    ind_sparse = sparse_list[C_sparse[k]]
-                    prod = np.dot(self.descriptor[C[j]], self.descriptor[ind_sparse])**self.zeta
-                    if prod <= 1. - precision:
-                        dist_cluster[j][k] = np.sqrt(1. - prod)
-                    else:
-                        dist_cluster[j][k] = 0.          
-            
-#           Transformation matrix T from distance space to 2D ( X·T = Y)
-            dist_sparse = self.dist_matrix[np.ix_(C_sparse, C_sparse)]
-            local_mds_sparse = self.local_sparse_coordinates[C_sparse,:]
-            reg = np.ones(len(C_sparse))*reg_param        # regularization
-            reg = np.diag(reg)
-            T = np.linalg.lstsq(dist_sparse - reg, local_mds_sparse, rcond=None)[0]
+            C = np.where(cluster_indices == i)[0]
+            C_sp = self.sparse_clusters[i]
+            non_sparse = np.setdiff1d(indices[C], sparse_list[C_sp])
+            if len(C_sp) in [1, 2] and len(non_sparse) > 0:
+                print('Warning: Cluster %i has only 1-2 sparse points. More sparse elements (min. 3) ' % i +
+                      'are needed to get a proper estimation for other points in the cluster.')
+#           Transf. matrix from high-dim. space to local 2-dim. space (with regularization)
+            reg = np.diag( np.ones(len(C_sp))*reg_param )
+            dist_sp = self.dist_matrix[np.ix_(C_sp, C_sp)] - reg
+            T = np.linalg.lstsq(dist_sp, self.local_sparse_coordinates[C_sp,:], rcond=None)[0]
             self.all_transformations[i]["dist"] = T
-            local_coordinates[C] = np.dot(dist_cluster, T)
-            ind_sparse = np.array(sparse_list)[C_sparse]
-            local_coordinates[ind_sparse] = local_mds_sparse
-#           Transform the coordinates from local to global space
-            transf_coordinates[C] = local_coordinates[C]                       
-            transf_coordinates[C] = local_coordinates[C]
-            T_2d = self.all_transformations[i][0]["transf"] # check if we change hierarchy computations                    <-- comment
-            if len(T_2d) == 1:
-#               Sparse cluster with 1 point (translation)
-                transf_coordinates[C] = transf_coordinates[C] + T_2d[0]
-                continue
-            elif len(T_2d) == 3:
-#               Linear transformation
-                ref_prev, T_lin, ref_new = T_2d
-#               We need to keep track of the reference anchor point in each step
-                transf_coordinates[C] = np.dot(transf_coordinates[C] - ref_prev, T_lin) + ref_new    
-            else:
-#               Homography
-                ref_prev, T_prev, F, T_new_inv, ref_new = T_2d
-#               We need to keep track of the reference anchor point in each step
-                transf_coordinates[C] = transf_coordinates[C] - ref_prev
-                X_prev = np.dot(transf_coordinates[C], T_prev)
-                X_prev_homog = np.concatenate((X_prev, np.ones((len(X_prev),1))), axis=1)
-                X_new_homog =  np.dot(X_prev_homog, F)
-                X_new = X_new_homog/X_new_homog[:,-1][:,None]
-                transf_coordinates[C] = np.dot(X_new[:,:2], T_new_inv)
-                transf_coordinates[C] = transf_coordinates[C] + ref_new
+            l = 0
+            for j in C:
+                if self.verbose:
+                    sys.stdout.write('\rEstimating map (cl. %i):%6.1f%%' % (i, float(l)*100./len(C)) )
+                    sys.stdout.flush()
+#               distance matrix of point j restricted to sparse cluster members
+                if  isinstance(indices[0], (list, np.ndarray)):
+                    dist_j = indices[j,1:][C_sp]
+                else:
+                    dist_j = self.all_dist_matrix[indices[j], sparse_list[C_sp]]
+#               transforming coordinates using sparse transf. matrices
+                local_coordinates[j], transf_coordinates[j] = self.transform_dist_to_2d(i, dist_j)
+                l += 1
             if self.verbose:
-                sys.stdout.write('\rEmbedding all data (cluster %i):%6.1f%%' % (i, 100.) )
+                sys.stdout.write('\rEstimating map (cl. %i):%6.1f%%' % (i, 100.) )
                 sys.stdout.flush()
                 print("")
                                            
         self.has_estimation = True
-        self.all_local_coordinates = local_coordinates
+        self.estim_local_coordinates = local_coordinates
 
-        self.all_cluster_indices = cluster_indices
-        self.all_coordinates = transf_coordinates
+        self.estim_cluster_indices = cluster_indices
+        self.estim_coordinates = transf_coordinates
+
+
+#   This method gives a "cheap" estimation of the cl-MDS coordinates of points not included in the sparse set 
+    def compute_atoms_estim_coordinates(self, indices, precision=1e-8, reg_param=0.001):
+        """
+        Computes an estimation of the 2-dimensional coordinates of the points given by the
+        indices param., using the previously computed sparse transformations. This method is
+        specific for atoms files.
+
+        Provide an array or list of indices via indices param.
+        """
+#       Classify all indices considering the sparse clustering
+        indices = np.array(indices)
+        if len(self.descriptor) != self.all_env:
+            cluster_indices, Q = self.assign_atoms_to_cluster(indices=indices, precision=precision,
+                                                              out_descriptor=True)
+            Q_sparse = self.descriptor
+        else:
+            cluster_indices = self.assign_atoms_to_cluster(indices=indices, precision=precision)
+            Q = self.descriptor[indices]
+            Q_sparse = self.descriptor[self.sparse_list]
+
+#       Compute the transformation from distance space to 2-dim. Euclidean space
+        L = len(indices)
+        local_coordinates = np.zeros((L, 2))
+        transf_coordinates = np.zeros((L, 2))
+        for i in range(0, self.hierarchy[0]):
+            if self.verbose:
+                print("")
+            C = np.where(cluster_indices == i)[0] 
+            C_sp = self.sparse_clusters[i]
+            non_sparse = np.setdiff1d(indices[C], np.array(self.sparse_list)[C_sp])
+            if len(C_sp) in [1, 2] and len(non_sparse) > 0:
+                print('Warning: Cluster %i has only 1-2 sparse points. More sparse elements (3 minimum)' % i +
+                      ' are needed to get a proper estimation for the other cluster points.')
+#           Transf. matrix from high-dim. space to local 2-dim. space (with regularization)
+            reg = np.diag( np.ones(len(C_sp))*reg_param )
+            dist_sp = self.dist_matrix[np.ix_(C_sp, C_sp)] - reg
+            T = np.linalg.lstsq(dist_sp, self.local_sparse_coordinates[C_sp,:], rcond=None)[0]
+            self.all_transformations[i]["dist"] = T
+            l = 0
+            for j in C:
+                if self.verbose:
+                    sys.stdout.write('\rEstimating map (cl. %i):%6.1f%%' % (i, float(l)*100./len(C)) )
+                    sys.stdout.flush()
+#               distance matrix of atom j restricted to sparse cluster members
+                dist_j = np.empty(len(C_sp))
+                for n, j_sp in enumerate(C_sp):
+                    prod = np.dot(Q[j], Q_sparse[j_sp])**self.zeta
+                    if prod <= 1. - precision:
+                        dist_j[n] = np.sqrt(1. - prod)
+                    else:
+                        dist_j[n] = 0. 
+#               transforming coordinates using sparse transf. matrices
+                local_coordinates[j], transf_coordinates[j] = self.transform_dist_to_2d(i, dist_j)
+                l += 1
+            if self.verbose:
+                sys.stdout.write('\rEstimating map (cl. %i):%6.1f%%' % (i, 100.) )
+                sys.stdout.flush()
+                print("")
+                                           
+        self.has_estimation = True
+        self.estim_local_coordinates = local_coordinates
+
+        self.estim_cluster_indices = cluster_indices
+        self.estim_coordinates = transf_coordinates
+
+
+#   This is a user friendly function that returns the clusters and coordinates of the complete dataset
+    def get_estim_coordinates(self, hierarchy=None, n_steps=10, precision=1e-8, reg_param=0.001):
+        """
+        This method give the clustering and embedding info. of the complete database. Those
+        points not included in the sparse set are classified within the existing clustering and
+        get estimated coordinates.
+
+        * hierarchy = None (default), int, list
+        Use None when the hierarchy attribute has already been used (usually for sparse
+        calculations). Otherwise, you need to define a hierarchy of cluster levels by
+        providing an integer or list (e.g., 8, [8,1] or [8,3,1]).
+
+        * n_steps = positive int
+        The n_steps param. establishes the size of the partition used to reduce memory consumption.
+        That is, the complete dataset is divided in n_steps subsets (excluding the sparse set),
+        each of them calling self.compute_estim_coordinates once.
+        """
+        if hasattr(self, 'hierarchy'):
+            hierarchy = self.hierarchy
+        elif hierarchy is None:
+            raise Exception("You need to provide a hierarchy to proceed with the calculations")
+
+        if not self.has_clmds:
+            self.cluster_MDS(hierarchy=hierarchy)
+
+        if self.atoms is None:
+            ext_coordinates = np.empty([self.n_env,3])
+        else:
+            ext_coordinates = np.empty([self.all_env,3])
+        ext_coordinates[self.sparse_list, 0:2] = self.sparse_coordinates
+        ext_coordinates[self.sparse_list, 2] = self.sparse_cluster_indices
+
+        verbose = self.verbose
+        L = self.n_env // n_steps
+        for i in range(0, n_steps):
+            if verbose:
+                self.verbose = False # overwrite verbose here, otherwise is too much info
+                sys.stdout.write('\rEstimation for subset %i:%6.1f%%' % (i+1, float(i)*100./n_steps) )
+                sys.stdout.flush()
+            l_low = L*i
+            l_high = L*(i+1)
+            if i == n_steps - 1:
+                l_high += self.n_env % n_steps
+            I = np.arange(l_low, l_high, 1)
+            if self.atoms is None:
+                indices = np.setdiff1d(I, self.sparse_list)
+                self.compute_pts_estim_coordinates(indices=indices)
+            else:
+                if self.do_species is None:
+                    indices = np.setdiff1d(I, self.sparse_list)
+                else:
+                    indices = np.setdiff1d(self.do_species_list[I], self.sparse_list)
+                self.compute_atoms_estim_coordinates(indices)
+            ext_coordinates[indices, 0:2] = self.estim_coordinates
+            ext_coordinates[indices, 2] = self.estim_cluster_indices
+        self.verbose = verbose
+        if self.verbose:
+            sys.stdout.write('\rEstimation for subset %i:%6.1f%%' % (i+1, 100.) )
+            sys.stdout.flush()
+            print("")
+
+        if self.do_species is not None:
+            ext_coordinates = ext_coordinates[self.do_species_list,:]
+
+        return ext_coordinates
 
 
 
@@ -1445,9 +1620,8 @@ class clMDS:
             natoms = len(ats)
             coords = np.empty([natoms, 2], dtype=float)
             cluster = np.empty(natoms, dtype=int)
-            if not self.has_estimation:
-                coords[:,:] = np.NaN
-                cluster[:] = -1
+            coords[:,:] = np.NaN
+            cluster[:] = -1
             for j in range(0, natoms):
                 if not self.has_estimation:
                     if n in self.sparse_list:
@@ -1455,8 +1629,8 @@ class clMDS:
                         coords[j] = self.sparse_coordinates[i]
                         cluster[j] = self.sparse_cluster_indices[i]
                 else:
-                    coords[j] = self.all_coordinates[n]
-                    cluster[j] = self.all_cluster_indices[n]
+                    coords[j] = self.estim_coordinates[n]
+                    cluster[j] = self.estim_cluster_indices[n]
                 n += 1
 
             ats.new_array("clmds_coords", coords)
@@ -1549,7 +1723,7 @@ class clMDS:
             if not self.has_estimation:
                 ext_coords = self.get_sparse_coordinates(hierarchy=self.hierarchy)
             else:
-                ext_coords = self.get_all_coordinates(hierarchy=self.hierarchy)
+                ext_coords = self.get_estim_coordinates(hierarchy=self.hierarchy)
             f = open(dir + "/xy.dat", "w+")
             for i in ext_coords:
                 print(i[0], i[1], i[2], file=f)

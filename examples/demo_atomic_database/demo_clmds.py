@@ -13,7 +13,7 @@ print("________________________________________________________")
 data = clmds.clMDS(atoms='qm9_demo.xyz',
                    descriptor="quippy_soap_turbo",
                    cutoff=[2.5, 3.], do_species=['F'],
-                   sparsify='random', n_sparse=300)
+                   sparsify='random', n_sparse=100)
 
 
 print("________________________________________________________")
@@ -50,11 +50,11 @@ print("------------ Estimating their coord. -------------------")
 t0e = time.time()
 all_F = np.where(np.array(data.species_list) == 'F')[0]
 ind_F = np.setdiff1d(all_F, data.sparse_list)
-data.compute_estim_coordinates(indices=ind_F)
+data.compute_atoms_estim_coordinates(indices=ind_F)
 t1e = time.time()
 
-Y_estim = data.all_coordinates
-C_estim = data.all_cluster_indices
+Y_estim = data.estim_coordinates
+C_estim = data.estim_cluster_indices
 print("--------------------------------------------------------")
 print(" ")
 print('Time clMDS (sparse): %.2g sec'% (t1u-t0u))
