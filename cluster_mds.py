@@ -168,7 +168,7 @@ class clMDS:
 #       Check if the user wants to use sparsification
         sparse_list = np.arange(0, self.n_env, 1) # added to avoid possible crushes in other methods          <-- check this
         if do_species is not None:
-            sparse_list = self.do_species_list
+            sparse_list = (self.do_species_list).copy()
         if sparsify is not None:
             if isinstance(sparsify, (list, np.ndarray)):
                 sparsify = np.unique(sparsify)
@@ -1595,8 +1595,72 @@ class clMDS:
         if self.do_species is not None:
             ext_coordinates = ext_coordinates[self.do_species_list,:]
 
+        self.estim_cluster_indices = ext_coordinates[:,2].astype(int)
+        self.estim_coordinates = ext_coordinates[:,:2]
+
         return ext_coordinates
 
+
+#   This method saves to txt file the requested clMDS attributes
+    def save_to_file(self, dir='./', debug=False):
+        """
+        Save to txt file the main cl-MDS attributes that have been computed, that is:
+            self.sparse_list
+            self.sparse_coordinates
+            self.sparse_cluster_indices
+            self.sparse_medoids
+            self.estim_coordinates
+            self.estim_cluster_indices
+        
+        If debug=True, a second file with all attributes related to transformations
+        and anchor points is created too.
+        """
+        if not self.has_clmds:
+            raise Exception("No information to save! Compute cl-MDS embedding first.")
+
+        if not self.has_estimation:
+            M = np.zeros(self.n_sparse)
+            M[self.sparse_medoids] = 1
+            with open(dir + 'clmds_results.dat', 'w+') as f:
+                print('i_atoms X_clmds Y_clmds C M', file=f)
+                for i in range(0, self.n_sparse):
+                    if self.verbose:
+                        sys.stdout.write('\rSaving results:%6.1f%%' % (float(i)*100./self.n_sparse) )
+                        sys.stdout.flush()
+                    print('%i %f %f %i %i' % (self.sparse_list[i], self.sparse_coordinates[i,0],
+                          self.sparse_coordinates[i,1], self.sparse_cluster_indices[i], M[i]), file=f)
+        else:
+            M = np.zeros(self.n_env)
+            S = np.zeros(self.n_env)
+            if self.do_species:
+                atoms_list = self.do_species_list
+                sparse_list = np.empty(self.n_sparse, dtype=int)
+                for i, s in enumerate(self.sparse_list):
+                    sparse_list[i] = np.where(s == self.do_species_list)[0][0]
+            else:
+                atoms_list = np.arange(0, self.n_env, 1)
+                sparse_list = np.array(self.sparse_list)
+            M[sparse_list[self.sparse_medoids]] = 1
+            S[sparse_list] = 1
+            with open(dir + 'clmds_results.dat', 'w+') as f:
+                print("i_atoms X_clmds Y_clmds C M sparse", file=f)
+                for i in range(0, self.n_env):
+                    if self.verbose:
+                        sys.stdout.write('\rSaving results:%6.1f%%' % (float(i)*100./self.n_sparse))
+                        sys.stdout.flush()
+                    print('%i %f %f %i %i %i' % (atoms_list[i], self.estim_coordinates[i,0],
+                          self.estim_coordinates[i,1], self.estim_cluster_indices[i], M[i], S[i]), file=f)
+        if debug:
+#           Print all transformations info
+            with open(dir + 'clmds_debug_data.dat', 'w+') as g:
+                print("all_env n_env n_sparse", file=g)
+                print("%i %i %i" % (self.all_env, self.n_env, self.n_sparse), file=g)
+                g.write(str(self.all_transformations))
+            
+        if self.verbose:
+            sys.stdout.write('\rSaving results:%6.1f%%' % (100.) )
+            sys.stdout.flush()
+            print("")
 
 
 
@@ -1674,6 +1738,7 @@ class clMDS:
                     if i in self.sparse_medoids:
                         pos = ats.get_positions()
                         cell = ats.get_cell()
+                        pbc = ats.get_pbc()
                         new_pos = []
                         neighbors = []
                         site = Atoms()
@@ -1686,7 +1751,7 @@ class clMDS:
 
                         site.set_cell(cell)
                         site.set_positions(new_pos)
-                        site.set_pbc(True)
+                        site.set_pbc(pbc)
                         shift = np.array([cutoff, cutoff, cutoff]) - pos[j]
                         site.translate(shift); site.wrap()
                         site.set_cell([2.*cutoff, 2.*cutoff, 2.*cutoff])
@@ -1699,23 +1764,23 @@ class clMDS:
             try:
                 from ovito.io import import_file
                 from ovito.vis import Viewport
-#                from ovito.modifiers import CreateBondsModifier
+                from ovito.modifiers import CreateBondsModifier
             except:
                 raise Exception("You need Ovito (pip3 install ovito) to use the rendering capability")
 
             for i in range(0, len(self.sparse_medoids)):
                 atoms = import_file(dir + "/medoid_%i.xyz" % i)
-#               I didn't manage to get bonds to render                                                          <-- comment
-#                modifier = CreateBondsModifier(cutoff = bond_cutoff)
-#                modifier.vis.enabled = True
-#                modifier.vis.width = 0.3
-#                atoms.modifiers.append(modifier)
-#                atoms.compute()
-                atoms.source.data.cell.vis.render_cell = False
                 atoms.add_to_scene()
                 vp = Viewport()
                 vp.type = Viewport.Type.Perspective
                 vp.zoom_all()
+                atoms.source.data.cell.vis.render_cell = False
+#               I didn't manage to get bonds to render                                                          <-- comment
+                modifier = CreateBondsModifier(cutoff = bond_cutoff)
+                modifier.vis.enabled = True
+                modifier.vis.width = 0.3
+                atoms.modifiers.append(modifier)
+                atoms.compute()
                 vp.render_image(filename=dir+"/medoid_%i.png" % i, size=(400,400), alpha=True)
                 atoms.remove_from_scene()
 
@@ -1732,13 +1797,13 @@ class clMDS:
             f = open(dir + "/gnuplot.script", "w+")
             print("set term pngcairo size 640,640; set output 'clmds_map.png'", file=f)
             print("set size ratio -1", file=f)
-            print("set xlabel 'MDS coordinate 1'", file=f)
-            print("set ylabel 'MDS coordinate 2'", file=f)
+            print("set xlabel 'cl-MDS coordinate 1'", file=f)
+            print("set ylabel 'cl-MDS coordinate 2'", file=f)
             if render:
                 print("plot 'xy.dat' u 1:2:3 lc var pt 7 not, \\", file=f)
                 for i in range(0, len(self.sparse_medoids)):
                     x, y = self.sparse_coordinates[self.sparse_medoids[i]]
-                    print("     'medoid_" + str(i) + ".png' binary filetype=png dx=0.0005" + \
+                    print("     'medoid_" + str(i) + ".png' binary filetype=png dx=0.0001" + \
                           "center=(" + str(x) + "," + str(y) + ") w rgbalpha not, \\", file=f)
             else:
                 print("plot 'xy.dat' u 1:2:3 lc var not", file=f)
