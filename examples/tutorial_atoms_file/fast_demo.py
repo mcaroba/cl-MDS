@@ -10,7 +10,7 @@ print(" ")
 print("                 cl-MDS demo")
 print("________________________________________________________")
 
-data = clmds.clMDS(atoms='qm9_demo.xyz',
+data = clmds.clMDS(atoms='qm9_F_struct.xyz',
                    descriptor="quippy_soap_turbo",
                    cutoff=[2.5, 3.], do_species=['F'],
                    sparsify='random', n_sparse=500)
@@ -71,6 +71,7 @@ data.save_to_file()
 
 ## Plotting
 import matplotlib.pyplot as plt
+
 color_list=np.array(['gold','limegreen','green','red','brown',
                      'cyan','darkgoldenrod','magenta',
                      'deepskyblue', 'navy','orange','purple',
@@ -80,10 +81,13 @@ plt.suptitle("cl-MDS map of F atoms (QM9 database)")
 plt.subplot(1,3,1)
 plt.title("sparse (default param.)")
 plt.scatter(Y1[:, 0], Y1[:, 1], c=color_list[C1], alpha=0.4)
+plt.xlabel('cl-MDS coordinate 1')
+plt.ylabel('cl-MDS coordinate 2')
 
 plt.subplot(1,3,2)
 plt.title("sparse (faster param.)")
 plt.scatter(Y2[:, 0], Y2[:, 1], c=color_list[C2], alpha=0.4)
+plt.ylabel('cl-MDS coordinate 2')
 
 plt.subplot(1,3,3)
 plt.title("complete (estimation)")
@@ -91,6 +95,7 @@ plt.scatter(Y_estim[:, 0], Y_estim[:, 1], c=color_list[C_estim],
             alpha=0.4)
 plt.scatter(Y2[:, 0], Y2[:, 1], c='black', marker='.',
             label='sparse set')
+plt.ylabel('cl-MDS coordinate 2')
 
 plt.legend()
 
