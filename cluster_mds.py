@@ -1436,8 +1436,6 @@ class clMDS:
         self.warning_bad_estim = []
         l = 0
         for i in range(0, self.hierarchy[0]):
-            if self.verbose:
-                print("")
             C = np.where(cluster_indices == i)[0]
             C_sp = self.sparse_clusters[i]
             non_sparse = np.setdiff1d(indices[C], sparse_list[C_sp])

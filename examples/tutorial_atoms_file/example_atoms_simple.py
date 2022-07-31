@@ -21,6 +21,7 @@ M = data.sparse_medoids
 Y_estim = data.get_estim_coordinates()
 C_estim = Y_estim[:,2].astype(int)
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Save to file
 # (1) in the original xyz file (only 2-dim. coord. and clustering)
 # data.write_xyz(filename='qm9_struct.xyz')

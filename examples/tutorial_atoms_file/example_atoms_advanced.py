@@ -5,11 +5,11 @@
 import numpy as np
 import cluster_mds as clmds
 
-### Pre-pocessing steps
+#~~~~~~~~~~ Pre-pocessing steps ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Custom sparse set
 custom_sparse = np.loadtxt('improved_sparse_set.txt', dtype=int)
 
-### cl-MDS calculations 
+#~~~~~~~~~~ cl-MDS calculations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Initialize clMDS class passing our own descriptor string
 Z = ['H','C','N','O','F']
 nmax = 8; lmax = 8
@@ -59,7 +59,7 @@ M = data.sparse_medoids
 Y_estim = data.get_estim_coordinates(n_steps=10)
 C_estim = Y_estim[:,2].astype(int)
 
-### Post-pocessing steps
+#~~~~~~~~~~ Post-processing steps ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Save to file
 data.save_to_file()
 
