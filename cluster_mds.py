@@ -721,6 +721,8 @@ class clMDS:
         if not self.sparsify_per_cluster: 
             if not self.has_dist_matrix:
                 self.build_dist_matrix()
+            if self.verbose:
+                print('\rClustering sparse points:')
             dist_matrix, ind_dist, ind_dist_inv = remove_zero_entries(self.dist_matrix, return_indices=True)
             if isinstance(init_medoids, (np.ndarray, list)):
 #               The indices given by the user are regarding the FULL dist. matrix (including
@@ -872,6 +874,8 @@ class clMDS:
                 C_prev = C_new
 
 #       MDS of all anchor points and their transformations  
+        if self.verbose:
+            print('\rMDS embedding of anchor points')
         self.sparse_coordinates = np.zeros((len(dist_matrix), 2))
         if len(np.unique(A)) == 1:
             self.sparse_coordinates[A[0],:] = np.zeros((1,2)) # avoid sklearn RuntimeWarning   
@@ -1003,7 +1007,7 @@ class clMDS:
             precision = 'QbB'
         for i in range(0, n_clusters):
             if self.verbose:
-                sys.stdout.write( '\rChecking convexity:%6.1f%%' % (float(i)*100./float(n_clusters))  )
+                sys.stdout.write( '\rChecking for pathological cases:%6.1f%%' % (float(i)*100./float(n_clusters))  )
                 sys.stdout.flush()
             N_anchor[i+1] = N_anchor[i] + len(ind_anchor[i])
             if len(ind_anchor[i]) <= 3:
@@ -1112,7 +1116,7 @@ class clMDS:
 #               Improve this error message                                                                       <-- check this
                 raise Warning("This is a highly pathological choice of anchor points, check cluster ", i) 
         if self.verbose:
-            sys.stdout.write( '\rChecking convexity:%6.1f%%' % 100. )
+            sys.stdout.write( '\rChecking for pathological cases:%6.1f%%' % 100. )
             sys.stdout.flush()
             print("")
 
@@ -1294,6 +1298,10 @@ class clMDS:
             dist_matrix = self.all_dist_matrix[np.ix_(indices, sparse_list[self.sparse_medoids])]
 
         cluster_indices = np.argmin(dist_matrix, axis=1)
+        if self.verbose:
+            sys.stdout.write('\rAssigning each point to cluster:%6.1f%%' % 100. )
+            sys.stdout.flush()
+            print("")
 
         return cluster_indices
 
@@ -1335,8 +1343,6 @@ class clMDS:
         L = len(indices)
         cluster_indices = - np.ones(L, dtype=int)
         l = 0
-        if self.verbose:
-            print("")
         for i in range(0, L):
             if self.verbose:
                 sys.stdout.write('\rAssigning each point to cluster:%6.1f%%' % (float(l)*100./float(L)))
@@ -1417,15 +1423,18 @@ class clMDS:
                 to its cluster sparse points (use self.assign_to_cluster_dist to obtain cluster info).
         """
         sparse_list = np.array(self.sparse_list)
+        L = len(indices)
 #       Classify all indices considering the sparse clustering
         if isinstance(indices[0], (list, np.ndarray)):
-            cluster_indices = np.array([int(indices[k][0]) for k in range(0, len(indices))])
+            cluster_indices = np.array([int(indices[k][0]) for k in range(0, L)])
         else:
             cluster_indices = self.assign_pts_to_cluster(indices=indices) 
 
 #       Compute the transformation from distance space to 2-dim. Euclidean space
-        local_coordinates = np.zeros((len(indices),2))
-        transf_coordinates = np.zeros((len(indices),2))
+        local_coordinates = np.zeros((L,2))
+        transf_coordinates = np.zeros((L,2))
+        self.warning_bad_estim = []
+        l = 0
         for i in range(0, self.hierarchy[0]):
             if self.verbose:
                 print("")
@@ -1433,17 +1442,15 @@ class clMDS:
             C_sp = self.sparse_clusters[i]
             non_sparse = np.setdiff1d(indices[C], sparse_list[C_sp])
             if len(C_sp) in [1, 2] and len(non_sparse) > 0:
-                print('Warning: Cluster %i has only 1-2 sparse points. More sparse elements (min. 3) ' % i +
-                      'are needed to get a proper estimation for other points in the cluster.')
+                self.warning_bad_estim.append(i)
 #           Transf. matrix from high-dim. space to local 2-dim. space (with regularization)
             reg = np.diag( np.ones(len(C_sp))*reg_param )
             dist_sp = self.dist_matrix[np.ix_(C_sp, C_sp)] - reg
             T = np.linalg.lstsq(dist_sp, self.local_sparse_coordinates[C_sp,:], rcond=None)[0]
             self.all_transformations[i]["dist"] = T
-            l = 0
             for j in C:
                 if self.verbose:
-                    sys.stdout.write('\rEstimating map (cl. %i):%6.1f%%' % (i, float(l)*100./len(C)) )
+                    sys.stdout.write('\rEstimating coordinates:%6.1f%%' % (float(l)*100./float(L)) )
                     sys.stdout.flush()
 #               distance matrix of point j restricted to sparse cluster members
                 if  isinstance(indices[0], (list, np.ndarray)):
@@ -1453,10 +1460,10 @@ class clMDS:
 #               transforming coordinates using sparse transf. matrices
                 local_coordinates[j], transf_coordinates[j] = self.transform_dist_to_2d(i, dist_j)
                 l += 1
-            if self.verbose:
-                sys.stdout.write('\rEstimating map (cl. %i):%6.1f%%' % (i, 100.) )
-                sys.stdout.flush()
-                print("")
+        if self.verbose:
+            sys.stdout.write('\rEstimating coordinates:%6.1f%%' % (100.) )
+            sys.stdout.flush()
+            print("")
                                            
         self.has_estimation = True
         self.estim_local_coordinates = local_coordinates
@@ -1489,24 +1496,22 @@ class clMDS:
         L = len(indices)
         local_coordinates = np.zeros((L, 2))
         transf_coordinates = np.zeros((L, 2))
+        self.warning_bad_estim = []
+        l = 0
         for i in range(0, self.hierarchy[0]):
-            if self.verbose:
-                print("")
             C = np.where(cluster_indices == i)[0] 
             C_sp = self.sparse_clusters[i]
             non_sparse = np.setdiff1d(indices[C], np.array(self.sparse_list)[C_sp])
             if len(C_sp) in [1, 2] and len(non_sparse) > 0:
-                print('Warning: Cluster %i has only 1-2 sparse points. More sparse elements (3 minimum)' % i +
-                      ' are needed to get a proper estimation for the other cluster points.')
+                self.warning_bad_estim.append(i)
 #           Transf. matrix from high-dim. space to local 2-dim. space (with regularization)
             reg = np.diag( np.ones(len(C_sp))*reg_param )
             dist_sp = self.dist_matrix[np.ix_(C_sp, C_sp)] - reg
             T = np.linalg.lstsq(dist_sp, self.local_sparse_coordinates[C_sp,:], rcond=None)[0]
             self.all_transformations[i]["dist"] = T
-            l = 0
             for j in C:
                 if self.verbose:
-                    sys.stdout.write('\rEstimating map (cl. %i):%6.1f%%' % (i, float(l)*100./len(C)) )
+                    sys.stdout.write('\rEstimating coordinates:%6.1f%%' % (float(l)*100./float(L)) )
                     sys.stdout.flush()
 #               distance matrix of atom j restricted to sparse cluster members
                 dist_j = np.empty(len(C_sp))
@@ -1519,10 +1524,10 @@ class clMDS:
 #               transforming coordinates using sparse transf. matrices
                 local_coordinates[j], transf_coordinates[j] = self.transform_dist_to_2d(i, dist_j)
                 l += 1
-            if self.verbose:
-                sys.stdout.write('\rEstimating map (cl. %i):%6.1f%%' % (i, 100.) )
-                sys.stdout.flush()
-                print("")
+        if self.verbose:
+            sys.stdout.write('\rEstimating coordinates:%6.1f%%' % (100.) )
+            sys.stdout.flush()
+            print("")
                                            
         self.has_estimation = True
         self.estim_local_coordinates = local_coordinates
@@ -1563,13 +1568,11 @@ class clMDS:
         ext_coordinates[self.sparse_list, 0:2] = self.sparse_coordinates
         ext_coordinates[self.sparse_list, 2] = self.sparse_cluster_indices
 
-        verbose = self.verbose
         L = self.n_env // n_steps
         for i in range(0, n_steps):
-            if verbose:
-                self.verbose = False # overwrite verbose here, otherwise is too much info
-                sys.stdout.write('\rEstimation for subset %i:%6.1f%%' % (i+1, float(i)*100./n_steps) )
-                sys.stdout.flush()
+            if self.verbose:
+                print("")
+                print('\rEstimation for subset %i/%i' % (i+1, n_steps) )
             l_low = L*i
             l_high = L*(i+1)
             if i == n_steps - 1:
@@ -1586,11 +1589,10 @@ class clMDS:
                 self.compute_atoms_estim_coordinates(indices)
             ext_coordinates[indices, 0:2] = self.estim_coordinates
             ext_coordinates[indices, 2] = self.estim_cluster_indices
-        self.verbose = verbose
-        if self.verbose:
-            sys.stdout.write('\rEstimation for subset %i:%6.1f%%' % (i+1, 100.) )
-            sys.stdout.flush()
+        if len(self.warning_bad_estim) > 0:
             print("")
+            print('*** Warning: The following clusters have only 1-2 sparse points: ', self.warning_bad_estim)
+            print('    A proper estimation of new cluster members requires 3 sparse points at least. ***')
 
         if self.do_species is not None:
             ext_coordinates = ext_coordinates[self.do_species_list,:]
@@ -1651,7 +1653,7 @@ class clMDS:
                     print('%i %f %f %i %i %i' % (atoms_list[i], self.estim_coordinates[i,0],
                           self.estim_coordinates[i,1], self.estim_cluster_indices[i], M[i], S[i]), file=f)
         if debug:
-#           Print all transformations info
+#           Save all transformations info
             with open(dir + 'clmds_debug_data.dat', 'w+') as g:
                 print("all_env n_env n_sparse", file=g)
                 print("%i %i %i" % (self.all_env, self.n_env, self.n_sparse), file=g)
