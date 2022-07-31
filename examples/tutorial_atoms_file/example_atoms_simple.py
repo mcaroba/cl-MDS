@@ -27,11 +27,12 @@ C_estim = Y_estim[:,2].astype(int)
 # data.write_xyz(filename='qm9_struct.xyz')
 
 # (2) in a new file
-data.save_to_file()
+dirname = './results_simple/'
+data.save_to_file(dir=dirname)
 
 # Plot the results:
 # 1. Generate the atomic structures corresponding to the medoids (uses ovito)
-dir_medoids = './medoids/'
+dir_medoids = dirname + 'medoids/'
 data.medoids_to_xyz(dir=dir_medoids, carve_radius=3.5, render=True)
 
 # 2. Create the plot
@@ -78,7 +79,7 @@ for i in range(0, n_clusters):
     ax.add_artist(ab)
 
 plt.legend()
-plt.savefig('clmds_plot_simple.png', format='png', dpi=300)
+plt.savefig(dirname + 'clmds_plot_simple.png', format='png', dpi=300)
 plt.show()
 
 

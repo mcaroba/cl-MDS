@@ -1615,6 +1615,10 @@ class clMDS:
         If debug=True, a second file with all attributes related to transformations
         and anchor points is created too.
         """
+        import os
+        if not os.path.exists(dir):
+            os.mkdir(dir)
+
         if not self.has_clmds:
             raise Exception("No information to save! Compute cl-MDS embedding first.")
 

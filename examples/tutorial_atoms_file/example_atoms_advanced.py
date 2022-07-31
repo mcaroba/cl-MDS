@@ -61,11 +61,12 @@ C_estim = Y_estim[:,2].astype(int)
 
 #~~~~~~~~~~ Post-processing steps ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Save to file
-data.save_to_file()
+dirname = './results_advanced/'
+data.save_to_file(dir=dirname)
 
 # Plot the results
 # 1. Generate the atomic structures corresponding to the medoids (uses ovito)
-dir_medoids = './medoids/'
+dir_medoids = dirname + 'medoids/'
 data.medoids_to_xyz(dir=dir_medoids, carve_radius=3.5, render=True)
 """
 You need to manually modify these structures for better results.
@@ -118,7 +119,7 @@ for i in range(0, hierarchy[0]):
     ax.add_artist(ab)
 
 plt.legend()
-plt.savefig('clmds_plot_advanced.png', format='png', dpi=300)
+plt.savefig(dirname + 'clmds_plot_advanced.png', format='png', dpi=300)
 plt.show()
 
 

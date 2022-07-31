@@ -40,7 +40,8 @@ Y_estim = data.get_estim_coordinates()
 C_estim = Y_estim[:,2].astype(int)
 
 # Save to file
-data.save_to_file()
+dirname = './results_dist_matrix/'
+data.save_to_file(dir=dirname)
 
 # Plot the results
 import matplotlib.pyplot as plt
@@ -55,7 +56,7 @@ ax.set_xlabel(r'cl-MDS coordinate 1')
 ax.set_ylabel(r'cl-MDS coordinate 2')
 
 plt.legend()
-plt.savefig('clmds_plot_dist_matrix.png', format='png', dpi=300)
+plt.savefig(dirname + 'clmds_plot_dist_matrix.png', format='png', dpi=300)
 plt.show()
 
 
