@@ -135,20 +135,20 @@ class clMDS:
                 self.all_env = n_env
             else:
                 self.all_env = len(species_list)
-            if do_species is None:
-                n_env = len(species_list)
-            else:
-                self.do_species = set(do_species)
-                try:
-                    assert self.do_species <= set(species_list)
-                except:
-                    raise Exception("do_species param. has a chemical symbol that isn't in your \
-                                     database, check it: ", self.do_species - set(species_list))
-                do_species_list = []
-                for z in self.do_species:
-                    do_species_list += list(np.where(np.array(species_list) == z)[0])
-                self.do_species_list = np.array(do_species_list)
-                n_env = len(do_species_list)
+                if do_species is None:
+                    n_env = len(species_list)
+                else:
+                    self.do_species = set(do_species)
+                    try:
+                        assert self.do_species <= set(species_list)
+                    except:
+                        raise Exception("do_species param. has a chemical symbol that isn't in your \
+                                        database, check it: ", self.do_species - set(species_list))
+                    do_species_list = []
+                    for z in self.do_species:
+                        do_species_list += list(np.where(np.array(species_list) == z)[0])
+                    self.do_species_list = np.array(do_species_list)
+                    n_env = len(do_species_list)
             self.n_env = n_env
         else:
             self.atoms = None

@@ -23,12 +23,12 @@ K2 = np.matmul(Q2, Q2.T)**data.zeta
 
 K = 0.4*K1 + 0.6*K2
 K[np.where(K > 1)] = 1. # avoids numerical round-off problems
-D = np.sqrt(1 - K)
+D = np.sqrt(1 - K)      # distance matrix associated to the kernel K
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Initialize clMDS class
 data = clmds.clMDS(dist_matrix=D, sparsify='random', n_sparse=1000)
-print(data.n_env, data.n_sparse, np.shape(D), np.shape(data.dist_matrix))
+
 # Compute 2-dim. coordinates for the sparse set
 n_clusters = 12
 Y = data.get_sparse_coordinates(n_clusters)
