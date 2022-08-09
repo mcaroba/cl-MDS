@@ -212,7 +212,7 @@ class clMDS:
 #       Descriptor string
         descriptor = self.descriptor_type
         descriptor_string = self.descriptor_string
-        if descriptor in ["quippy_soap", "quippy_soap_turbo"]:
+        if descriptor in ["quippy_soap", "quippy_soap_turbo", "quippy_soap_turbo_compress"]:
             from ase.data import atomic_numbers
             from quippy.descriptors import Descriptor
             from quippy.convert import ase_to_quip
@@ -235,7 +235,7 @@ class clMDS:
                                     str(n_Z) + " n_species=" + str(n_Z) 
                     if self.average_kernel:
                         quippy_string = quippy_string + " average=T" 
-                elif descriptor == "quippy_soap_turbo":
+                elif descriptor == "quippy_soap_turbo" or descriptor == "quippy_soap_turbo_compress":
                     if not self.cutoff:
                         rcut_hard = 5.0
                         rcut_soft = rcut_hard - 0.5
@@ -272,6 +272,8 @@ class clMDS:
                                            scaling_mode="polynomial" species_Z={' + species_string + '} \
                                            n_species=' + str(n_Z) + ' central_index=' + str(i+1) + \
                                            ' central_weight={' + central_w + '}' 
+                        if descriptor == "quippy_soap_turbo_compress":
+                            quippy_string[z] += ' compress_mode="trivial"'
 #           This uses a user-defined SOAP/SOAP_TURBO
             else:
                 quippy_string = self.descriptor_string
