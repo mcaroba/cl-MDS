@@ -291,7 +291,7 @@ class clMDS:
                     average = self.get_info_string(quippy_string, label="average")     
                     self.cutoff = cutoff
                     self.average_kernel = average
-                elif descriptor == "quippy_soap_turbo":
+                elif descriptor == "quippy_soap_turbo" or descriptor == "quippy_soap_turbo_compress":
 #                   Check string
                     if isinstance(quippy_string, str):   
                         Z = self.get_info_string(quippy_string, label="species_Z", type_label=int, 
@@ -403,7 +403,7 @@ class clMDS:
                         else:
                             descriptor_list.append(q)
                         n += 1   
-                elif descriptor == "quippy_soap_turbo":   
+                elif descriptor == "quippy_soap_turbo" or descriptor == "quippy_soap_turbo_compress":   
                     q = {}
                     N = {z: 0 for z in species}
                     for i, z in enumerate(species):   
