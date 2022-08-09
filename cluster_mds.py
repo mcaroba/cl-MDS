@@ -94,7 +94,7 @@ class clMDS:
         """
 #       This is the list of implemented atomic descriptors (it typically requires external
 #       programs)
-        implemented_descriptors = ["quippy_soap","quippy_soap_turbo"]
+        implemented_descriptors = ["quippy_soap","quippy_soap_turbo","quippy_soap_turbo_compress"]
         sparse_options = ["random", "cur"]
         self.verbose = verbose
         self.sparsify = sparsify
