@@ -89,7 +89,7 @@ class clMDS:
             *sparsify_per_cluster = bool       --- in development (DO NOT USE)
             *max_n_sparse = int, None(default) --- in development (DO NOT USE)
 
-        implemented_descriptors = ["quippy_soap","quippy_soap_turbo"]
+        implemented_descriptors = ["quippy_soap","quippy_soap_turbo","quippy_soap_turbo_compress"]
         sparse_options = ["random", "cur"]
         """
 #       This is the list of implemented atomic descriptors (it typically requires external
@@ -360,7 +360,7 @@ class clMDS:
                 species = self.do_species
             if descriptor == "quippy_soap":
                 d = Descriptor(quippy_string)
-            elif descriptor == "quippy_soap_turbo":
+            elif descriptor == "quippy_soap_turbo" or descriptor == "quippy_soap_turbo_compress":
                 d = {z: Descriptor(quippy_string[z]) for z in species}
             n = 0
             descriptor_list = []
@@ -1721,7 +1721,7 @@ class clMDS:
             raise Exception("You haven't run a cl-MDS coordinate calculation yet!")
 
         if carve_radius == None:
-            if descriptor == "quippy_soap_turbo":
+            if descriptor == "quippy_soap_turbo" or descriptor == "quippy_soap_turbo_compress":
                 cutoff = np.max(self.cutoff)
             else:
                 cutoff = self.cutoff
