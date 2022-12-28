@@ -197,15 +197,16 @@ class clMDS:
             if self.has_dist_matrix:
                 if isinstance(sparsify, str) and sparsify == "cur":
                     sparse_list = np.unique(cur.cur_decomposition(self.dist_matrix, n_sparse)[-1])
+                    n_sparse = len(sparse_list) 
                 self.dist_matrix = dist_matrix[np.ix_(sparse_list, sparse_list)]
                 self.all_dist_matrix = dist_matrix
 
         self.sparse_list = list(sparse_list)
-        self.n_sparse = len(sparse_list)
+        self.n_sparse = n_sparse
 
 
 #   This method takes care of adding a descriptor to the clMDS class:
-    def build_descriptor(self, zeta=6, for_atoms_estim=False):
+    def build_descriptor(self, zeta=6, estim_for_atoms=False):
         if not hasattr(self, 'descriptor_type'):
             raise Exception("You must define a descriptor, check the implemented options")
 
@@ -342,16 +343,16 @@ class clMDS:
                                              please include both in the descriptor string.")
                         cutoff.append(rsoft)
                         cutoff.append(rhard)
-                    if self.cutoff and for_atoms_estim is False:
+                    if self.cutoff and estim_for_atoms is False:
                         print('The information included in descriptor_string is used instead of cutoff param.:')
                         print('   Chosen cutoff(s) =', cutoff)
                     self.cutoff = cutoff
 
 #           Check sparsify hasn't change (required for coord. estimation)
-            if for_atoms_estim is False:
+            if estim_for_atoms is False:
                 sparse_list = np.array(self.sparse_list)
             else:
-                sparse_list = np.array(for_atoms_estim)
+                sparse_list = np.array(estim_for_atoms)
 
 #           Descriptors
             if self.verbose:
@@ -426,7 +427,7 @@ class clMDS:
                         N[symb] += 1 
                     n += len(ats)
             descriptor_list = np.array(descriptor_list)
-            if for_atoms_estim is False:
+            if estim_for_atoms is False:
                 if isinstance(self.sparsify, str) and self.sparsify == "cur":
                     sparse_list = np.unique(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1])
                     descriptor_list = descriptor_list[sparse_list]
@@ -684,6 +685,7 @@ class clMDS:
 
         * Clustering (iter_med, tmax, init_medoids, n_iso_med)
         Check kmedoids for further information.
+        The user can pass init_medoids = array/list of indices (referring to the complete database)
 
         * Embedding (n_init_*, max_iter_*, n_jobs_*, verbose_*, weight_*_mds; with 
                      *=(initial) clusters, anchor (points))
@@ -719,8 +721,26 @@ class clMDS:
 
         self.hierarchy = hierarchy
 
+#       Check custom medoids if provided
+        if isinstance(init_medoids, (np.ndarray, list)):
+            if self.do_species is not None:
+                try:
+                    assert set(init_medoids) <= set(self.do_species_list)
+                except:
+                    raise Exception("Your custom medoids (init_medoids) cannot include atoms \
+                                     whose chemical species is other than:", self.do_species)
+#           When used together with sparsification, be sure they are in the sparse set
+            if self.sparsify not in [None, "cur"]:
+                if not set(init_medoids) <= set(self.sparse_list):
+                    self.sparse_list = list( np.unique(self.sparse_list + list(init_medoids)) )
+                    self.n_sparse = len(self.sparse_list)
+                    if getattr(self, 'all_dist_matrix', None) is not None:
+                        self.dist_matrix = self.all_dist_matrix[np.ix_(self.sparse_list, self.sparse_list)]
+                    if self.has_dist_matrix and (self.n_sparse > len(self.dist_matrix)):
+                        self.has_dist_matrix = False
+
 #       Finest clustering (initial hierarchy level)
-        if not self.sparsify_per_cluster: 
+        if not self.sparsify_per_cluster:
             if not self.has_dist_matrix:
                 self.build_dist_matrix()
             if self.verbose:
@@ -729,7 +749,11 @@ class clMDS:
             if isinstance(init_medoids, (np.ndarray, list)):
 #               The indices given by the user are regarding the FULL dist. matrix (including
 #               zero/repeated entries), so they need to be redefine
-                init_medoids = ind_dist_inv[init_medoids]
+                temp = [(self.sparse_list).index(m) for m in init_medoids if m in self.sparse_list]
+                if len(temp) == 0:
+                    init_medoids = "isolated"
+                else:
+                    init_medoids = ind_dist_inv[np.unique(temp)]
             ind_medoids, ind_clusters = km.kMedoids( dist_matrix, n_clusters, incoherence="rel",
                                                      n_inits=iter_med, tmax=tmax, init_Ms=init_medoids,
                                                      n_iso=n_iso_med, verbosity=self.verbose )
@@ -1328,7 +1352,7 @@ class clMDS:
                 indices = np.setdiff1d(self.do_species_list, sparse_list)
         if len(self.descriptor) != self.n_env:
             Q_sparse = self.descriptor
-            self.build_descriptor(for_atoms_estim=indices)
+            self.build_descriptor(estim_for_atoms=indices)
             Q = self.descriptor
 #           Reassign the overwritten attributes
             self.descriptor = Q_sparse
@@ -1422,7 +1446,7 @@ class clMDS:
         If indices=None (default), the complete distance matrix is used. Otherwise, please provide:
             (1) an array/list of indices (only available when sparsify is used),
             (2) a list where each member i is an array with its cluster index (first) and its distances
-                to its cluster sparse points (use self.assign_to_cluster_dist to obtain cluster info).
+                to its cluster sparse points (use self.assign_pts_to_cluster to obtain cluster info).
         """
         sparse_list = np.array(self.sparse_list)
         L = len(indices)

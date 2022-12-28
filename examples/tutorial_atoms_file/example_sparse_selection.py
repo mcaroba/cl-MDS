@@ -95,7 +95,7 @@ while not improved_sparse:
         for i in set(C):
             cl_i = len(np.where(C == i)[0])
             cl_i_all = len(np.where(C_all == i)[0])
-            print(' %2i       %6i        %6i' % (i, cl_i, cl_i_all))
+            print(' %2i       %6i        %6i' % (i, cl_i, cl_i + cl_i_all))
         print(" ")
     # Improve the sparse set by increasing the smallest clusters
     new_ind = sparse_ind
