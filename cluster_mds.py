@@ -687,10 +687,10 @@ class clMDS:
 
 #   This method clusters the data and produces the embedded 2-dimensional coordinates
 #   Make sure these are sensible defaults!!!!!!                                                              <-- comment
-    def cluster_MDS(self, hierarchy, iter_med=10000, tmax=100, init_medoids="isolated", n_iso_med=1,
+    def cluster_MDS(self, hierarchy, iter_med=3000, tmax=100, init_medoids="isolated", n_iso_med=1,
                     n_init_mds_cluster=100, max_iter_cluster=300, n_jobs_cluster=1, verbose_cluster=0,
                     param_anchor=[70,80,90], n_init_mds_anchor=3500, max_iter_anchor=300, 
-                    n_jobs_anchor=1, verbose_anchor=0, weight_cluster_mds=10, weight_anchor_mds=None,
+                    n_jobs_anchor=1, verbose_anchor=0, weight_cluster_mds=8, weight_anchor_mds=0,
                     eta=0., precision_qhull=1e-7):
         """
         Parameters:
@@ -1268,8 +1268,8 @@ class clMDS:
 
 
 #   This is a user friendly function that returns the clusters and medoids of the sparse set
-    def get_sparse_coordinates(self, hierarchy, init_medoids="isolated", n_iso_med=1, eta=0.,
-                               weight_anchor_mds=None):
+    def get_sparse_coordinates(self, hierarchy, init_medoids="isolated", n_iso_med=2, eta=0.,
+                               weight_anchor_mds=2):
         if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy, init_medoids = init_medoids,
                              n_iso_med = n_iso_med, eta = eta, weight_anchor_mds = weight_anchor_mds)
