@@ -34,6 +34,10 @@ data = clmds.clMDS(atoms='qm9_F_struct.xyz', descriptor="quippy_soap_turbo",
                    descriptor_string=desc_string, do_species=['F'],
                    sparsify=custom_sparse)
 
+# Alternative initialization: passing precomputed descriptors
+# data = clmds.clMDS(descriptor=<custom list/array of desriptors>, sparsify=custom_sparse)
+
+
 # Compute 2-dim. representation of the sparse set
 # Parameters available: k-medoids initialization, MDS-related weights
 hierarchy = [12,1]

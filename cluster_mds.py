@@ -60,8 +60,9 @@ class clMDS:
                 Filename with the atomic structures (requires ase installation).
 
         - atomic descriptors (when passing atoms):
-            *descriptor = str, None(default)
-                Atomic descriptor from the implemented_descriptors list.
+            *descriptor = str, None(default), list/array
+                Atomic descriptor from the implemented_descriptors list. You can also pass
+                a list/array of precomputed descriptors.
             *descriptor_string = str, None(default)
                 String with the descriptor info.
             *cutoff = float, [float,float], None(default)
@@ -155,18 +156,25 @@ class clMDS:
 
 #       Check if the user wants to use a descriptor
         if descriptor is not None:
-            if descriptor not in implemented_descriptors:
-                raise Exception("The descriptor you chose is not implemented; the options are: ",
-                                implemented_descriptors)
             if dist_matrix is not None:
                 raise Exception("You can't define a distance matrix and a descriptor; choose one or the other!")
-            if atoms is None:
-                raise Exception("If you define a descriptor, you must also provide an atoms filename")
-            self.descriptor_type = descriptor
-            self.descriptor_string = descriptor_string
+            if isinstance(descriptor, (list, np.ndarray)):
+                if atoms is None:
+                    self.n_env = len(descriptor)
+                    self.all_env = len(descriptor)
+                self.has_descriptor = True
+                self.descriptor = np.array(descriptor)
+            elif descriptor not in implemented_descriptors:
+                raise Exception("The descriptor you chose is not implemented; the options are: ",
+                                implemented_descriptors)
+            else:
+                if atoms is None:
+                    raise Exception("If you define a descriptor, you must also provide an atoms filename")
+                self.descriptor_type = descriptor
+                self.descriptor_string = descriptor_string
             
 #       Check if the user wants to use sparsification
-        sparse_list = np.arange(0, self.n_env, 1) # added to avoid possible crushes in other methods          <-- check this
+        sparse_list = np.arange(0, self.n_env, 1) # added to avoid possible crushes in other methods
         if do_species is not None:
             sparse_list = (self.do_species_list).copy()
         if sparsify is not None:
@@ -200,13 +208,13 @@ class clMDS:
                     n_sparse = len(sparse_list) 
                 self.dist_matrix = dist_matrix[np.ix_(sparse_list, sparse_list)]
                 self.all_dist_matrix = dist_matrix
-
+                
         self.sparse_list = list(sparse_list)
         self.n_sparse = n_sparse
 
 
 #   This method takes care of adding a descriptor to the clMDS class:
-    def build_descriptor(self, zeta=6, estim_for_atoms=False):
+    def build_descriptor(self, estim_for_atoms=False):
         if not hasattr(self, 'descriptor_type'):
             raise Exception("You must define a descriptor, check the implemented options")
 
@@ -217,7 +225,6 @@ class clMDS:
             from ase.data import atomic_numbers
             from quippy.descriptors import Descriptor
             from quippy.convert import ase_to_quip
-            self.zeta = zeta
             species = list(set(self.species_list)) 
 #           This uses some default SOAP parameters
             if descriptor_string is None:
@@ -475,13 +482,25 @@ class clMDS:
 
 
 #   This method takes care of building a distance matrix:
-    def build_dist_matrix(self, precision=1.e-8):
-        if self.descriptor_type is not None:
+    def build_dist_matrix(self, zeta=6, precision=1.e-8):
+        if self.descriptor is not None:
 #           If the descriptors have not been computed, we need to do so
             if not self.has_descriptor:
                 self.build_descriptor()
+            descriptor = self.descriptor
+            if not hasattr(self, 'descriptor_type'):
+#               add descriptor names to this print                                                             <--- comment
+                print("")
+                print("You passed a list of precomputed descriptors (Q). Ignore the following warning if " +
+                      "they are: soap, soap_turbo")
+                print("!!! Warning: this definition of distance is valid only when the kernel " +
+                      "K = (Q Q.T)**zeta is real-valued positive definite.")
+                if isinstance(self.sparsify, str) and self.sparsify == "cur":
+                    self.sparse_list = np.unique(cur.cur_decomposition(self.descriptor, self.n_sparse)[-1])
+                    self.n_sparse = len(self.sparse_list) 
+                descriptor = self.descriptor[self.sparse_list]
             
-            L = len(self.descriptor)
+            L = len(descriptor)
             dist_matrix = np.zeros([L, L])
             n = 0
             if self.verbose:
@@ -493,7 +512,7 @@ class clMDS:
 #               Do this to remove numerical round-off problems
                 dist_matrix[i,i] = 0.
                 for j in range(i+1, L):
-                    prod = np.dot(self.descriptor[i], self.descriptor[j])**self.zeta
+                    prod = np.dot(descriptor[i], descriptor[j])**zeta
                     if prod <= 1. - precision:
                         dist_matrix[i][j] = np.sqrt(1. - prod)
                         dist_matrix[j][i] = np.sqrt(1. - prod)
@@ -506,6 +525,7 @@ class clMDS:
                 sys.stdout.flush()
                 print("")
 
+            self.zeta = zeta
             self.dist_matrix = dist_matrix
             self.has_dist_matrix = True
         else:
@@ -1253,6 +1273,8 @@ class clMDS:
         if not self.has_clmds:
             self.cluster_MDS(hierarchy = hierarchy, init_medoids = init_medoids,
                              n_iso_med = n_iso_med, eta = eta, weight_anchor_mds = weight_anchor_mds)
+        if self.sparsify is None:
+            self.n_sparse = self.n_env
 
         ext_coordinates = np.empty([self.n_sparse, 3])
         ext_coordinates[0:self.n_sparse, 0:2] = self.sparse_coordinates
@@ -1592,6 +1614,9 @@ class clMDS:
         ext_coordinates[self.sparse_list, 0:2] = self.sparse_coordinates
         ext_coordinates[self.sparse_list, 2] = self.sparse_cluster_indices
 
+        if self.n_env < 1000: # test this number                                                     <--- comment
+            n_steps = 1
+
         L = self.n_env // n_steps
         for i in range(0, n_steps):
             if self.verbose:
@@ -1602,7 +1627,7 @@ class clMDS:
             if i == n_steps - 1:
                 l_high += self.n_env % n_steps
             I = np.arange(l_low, l_high, 1)
-            if self.atoms is None:
+            if not self.has_descriptor:
                 indices = np.setdiff1d(I, self.sparse_list)
                 self.compute_pts_estim_coordinates(indices=indices)
             else:
@@ -1615,8 +1640,8 @@ class clMDS:
             ext_coordinates[indices, 2] = self.estim_cluster_indices
         if len(self.warning_bad_estim) > 0:
             print("")
-            print('*** Warning: The following clusters have only 1-2 sparse points: ', self.warning_bad_estim)
-            print('    A proper estimation of new cluster members requires 3 sparse points at least. ***')
+            print('!!! Warning: The following clusters have only 1-2 sparse points: ', self.warning_bad_estim)
+            print('    A proper estimation of new cluster members requires 3 sparse points at least.')
 
         if self.do_species is not None:
             ext_coordinates = ext_coordinates[self.do_species_list,:]
