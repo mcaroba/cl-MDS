@@ -164,6 +164,7 @@ class clMDS:
                     self.all_env = len(descriptor)
                 self.has_descriptor = True
                 self.descriptor = np.array(descriptor)
+                self.descriptor_type = "Unknown"
             elif descriptor not in implemented_descriptors:
                 raise Exception("The descriptor you chose is not implemented; the options are: ",
                                 implemented_descriptors)
@@ -483,12 +484,12 @@ class clMDS:
 
 #   This method takes care of building a distance matrix:
     def build_dist_matrix(self, zeta=6, precision=1.e-8):
-        if self.descriptor is not None:
+        if self.descriptor_type is not None:
 #           If the descriptors have not been computed, we need to do so
             if not self.has_descriptor:
                 self.build_descriptor()
             descriptor = self.descriptor
-            if not hasattr(self, 'descriptor_type'):
+            if self.descriptor_type == "Unknown":
 #               add descriptor names to this print                                                             <--- comment
                 print("")
                 print("You passed a list of precomputed descriptors (Q). Ignore the following warning if " +
