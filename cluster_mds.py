@@ -164,6 +164,7 @@ class clMDS:
                     self.all_env = len(descriptor)
                 self.has_descriptor = True
                 self.descriptor = np.array(descriptor)
+                self.descriptor_type = "Unknown"
             elif descriptor not in implemented_descriptors:
                 raise Exception("The descriptor you chose is not implemented; the options are: ",
                                 implemented_descriptors)
@@ -434,12 +435,6 @@ class clMDS:
                         N[symb] += 1 
                     n += len(ats)
             descriptor_list = np.array(descriptor_list)
-            if estim_for_atoms is False:
-                if isinstance(self.sparsify, str) and self.sparsify == "cur":
-                    sparse_list = np.unique(cur.cur_decomposition(descriptor_list, self.n_sparse)[-1])
-                    descriptor_list = descriptor_list[sparse_list]
-                    self.sparse_list = list(self.do_species_list[sparse_list])
-                    self.n_sparse = len(sparse_list)
             if self.verbose:
                 sys.stdout.write('\rComputing descriptors:%6.1f%%' % 100. )
                 sys.stdout.flush()
@@ -483,23 +478,26 @@ class clMDS:
 
 #   This method takes care of building a distance matrix:
     def build_dist_matrix(self, zeta=6, precision=1.e-8):
-        if self.descriptor is not None:
+        if self.descriptor_type is not None:
 #           If the descriptors have not been computed, we need to do so
             if not self.has_descriptor:
                 self.build_descriptor()
             descriptor = self.descriptor
-            if not hasattr(self, 'descriptor_type'):
+#            if self.descriptor_type == "Unknown":
 #               add descriptor names to this print                                                             <--- comment
-                print("")
-                print("You passed a list of precomputed descriptors (Q). Ignore the following warning if " +
-                      "they are: soap, soap_turbo")
-                print("!!! Warning: this definition of distance is valid only when the kernel " +
-                      "K = (Q Q.T)**zeta is real-valued positive definite.")
-                if isinstance(self.sparsify, str) and self.sparsify == "cur":
-                    self.sparse_list = np.unique(cur.cur_decomposition(self.descriptor, self.n_sparse)[-1])
-                    self.n_sparse = len(self.sparse_list) 
-                descriptor = self.descriptor[self.sparse_list]
-            
+#                print("")
+#                print("You passed a list of precomputed descriptors (Q). Ignore the following warning if " +
+#                      "they are: soap, soap_turbo")
+#                print("!!! Warning: this definition of distance is valid only when the kernel " +
+#                      "K = (Q Q.T)**zeta is real-valued positive definite.")
+            if isinstance(self.sparsify, str) and self.sparsify == "cur":
+                sparse_list = np.unique(cur.cur_decomposition(self.descriptor, self.n_sparse)[-1])
+                if self.do_species is not None:
+                     sparse_list = list(self.do_species_list[sparse_list])
+                descriptor = self.descriptor[sparse_list]
+                self.n_sparse = len(sparse_list)
+                self.sparse_list = sparse_list
+
             L = len(descriptor)
             dist_matrix = np.zeros([L, L])
             n = 0
