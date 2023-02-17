@@ -1,16 +1,22 @@
-##############################################################
+###################################################################
 #            cl-MDS atomic-structure example
 #                         (advanced)
-##############################################################
+#
+#       uncomment ## lines to use different options
+###################################################################
 import numpy as np
 import cluster_mds as clmds
 
-#~~~~~~~~~~ Pre-pocessing steps ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Custom sparse set
-custom_sparse = np.loadtxt('improved_sparse_set.txt', dtype=int)
+#~~~~~~~~~~~ Initialization parameters ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# n. of clusters
+hierarchy = [12,1]
 
-#~~~~~~~~~~ cl-MDS calculations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Initialize clMDS class passing our own descriptor string
+# xyz file with atomic structures
+atoms_file = 'qm9_F_struct.xyz'
+descriptor = "quippy_soap_turbo"
+# selection of atomic species
+do_species = ['F']
+# custom descriptor string
 Z = ['H','C','N','O','F']
 nmax = 8; lmax = 8
 rcut_hard = 3.5; rcut_soft = rcut_hard - 0.5
@@ -30,19 +36,54 @@ desc_string = {z:'soap_turbo alpha_max={%i %i %i %i %i} l_max=%i rcut_soft=%.2f 
                    at_srs[4], at_sts[0], at_sts[1], at_sts[2], at_sts[3], at_sts[4], i+1)
                  for i, z in enumerate(Z)}
 
-data = clmds.clMDS(atoms='qm9_F_struct.xyz', descriptor="quippy_soap_turbo",
-                   descriptor_string=desc_string, do_species=['F'],
+# alternative initialization using custom descriptor matrix
+descriptor = np.loadtxt("descriptor.dat") #< custom array of descriptors with shape=(n. desc., dim. desc.) >
+atoms_file = None # default, added to run this file
+do_species = None # default, added to run this file (note that you need to pass 
+                     # descriptors of only those species you want)
+desc_string = None # default, added to run this file
+
+# directories to store the results
+dirname = './results_advanced/'
+dir_medoids = dirname + 'medoids/'
+
+#~~~~~~~~~~ Advanced sparse set options ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 1) Pass your own custom list/array of sparse indices
+## custom_sparse = np.loadtxt('improved_sparse_set.txt', dtype=int)
+
+# 2) Compute a custom sparse set using sparsify_module
+import sparsify_module as spmod
+n_sparse = 100 # reference size of the sparse set
+               # (some methods increase/decrease it a bit)
+P_med = 40 # approx. percentage of medoids in the sparse set
+           # lower it (15-20) for databases with more than 30000 atoms
+# (2.1) only medoids in the sparse set
+## custom_sparse = spmod.sparsify_kmedoids( atoms=atoms_file, descriptor=descriptor, do_species=do_species,
+##                 descriptor_string=desc_string, max_n_sparse=n_sparse, percentage_med=P_med )
+
+# (2.2) medoids + random points in the sparse set
+custom_sparse = spmod.sparsify_rand_and_kmedoids( n_sparse, atoms=atoms_file, descriptor=descriptor,
+                 descriptor_string=desc_string, do_species=do_species, percentage_med=P_med )
+
+# (2.3) optimized version of (2.1), (2.2) for a given number of clusters (hierarchy[0]) 
+#       it ensures a minimum number of points per cluster in the sparse set, improving cl-MDS performance
+#custom_sparse = spmod.sparsify_cluster_size( n_sparse, hierarchy[0], atoms=atoms_file, 
+#                descriptor=descriptor, descriptor_string=desc_string, do_species=do_species, 
+#                percentage_med=P_med, min_cluster_size=5, max_iter=15 )
+
+# It is recommended to save the sparse set for further uses/testing parameters
+np.savetxt(dirname + 'improved_sparse_set.txt', custom_sparse, fmt='%i')
+
+#~~~~~~~~~~ cl-MDS calculations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Initialize clMDS class passing our own descriptor string
+data = clmds.clMDS(atoms=atoms_file, descriptor=descriptor,
+                   descriptor_string=desc_string, do_species=do_species,
                    sparsify=custom_sparse)
-
-# Alternative initialization: passing precomputed descriptors
-# data = clmds.clMDS(descriptor=<custom list/array of desriptors>, sparsify=custom_sparse)
-
-
 # Compute 2-dim. representation of the sparse set
 # Parameters available: k-medoids initialization, MDS-related weights
-hierarchy = [12,1]
 Y = data.get_sparse_coordinates(hierarchy, init_medoids="isolated", n_iso_med=1,
-                                weight_anchor_mds=None, eta=0)
+                                weight_anchor_mds=2, eta=0)
+np.savetxt("descriptor.dat", data.descriptor)
 C = Y[:,2].astype(int)
 M = data.sparse_medoids
 
@@ -65,12 +106,10 @@ C_estim = Y_estim[:,2].astype(int)
 
 #~~~~~~~~~~ Post-processing steps ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Save to file
-dirname = './results_advanced/'
 data.save_to_file(dir=dirname)
 
 # Plot the results
 # 1. Generate the atomic structures corresponding to the medoids (uses ovito)
-dir_medoids = dirname + 'medoids/'
 data.medoids_to_xyz(dir=dir_medoids, carve_radius=3.5, render=True)
 """
 You need to manually modify these structures for better results.
