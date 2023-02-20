@@ -62,14 +62,14 @@ P_med = 40 # approx. percentage of medoids in the sparse set
 ##                 descriptor_string=desc_string, max_n_sparse=n_sparse, percentage_med=P_med )
 
 # (2.2) medoids + random points in the sparse set
-custom_sparse = spmod.sparsify_rand_and_kmedoids( n_sparse, atoms=atoms_file, descriptor=descriptor,
-                 descriptor_string=desc_string, do_species=do_species, percentage_med=P_med )
+## custom_sparse = spmod.sparsify_rand_and_kmedoids( n_sparse, atoms=atoms_file, descriptor=descriptor,
+##                  descriptor_string=desc_string, do_species=do_species, percentage_med=P_med )
 
 # (2.3) optimized version of (2.1), (2.2) for a given number of clusters (hierarchy[0]) 
 #       it ensures a minimum number of points per cluster in the sparse set, improving cl-MDS performance
-#custom_sparse = spmod.sparsify_cluster_size( n_sparse, hierarchy[0], atoms=atoms_file, 
-#                descriptor=descriptor, descriptor_string=desc_string, do_species=do_species, 
-#                percentage_med=P_med, min_cluster_size=5, max_iter=15 )
+custom_sparse = spmod.sparsify_cluster_size( n_sparse, hierarchy[0], atoms=atoms_file, 
+                descriptor=descriptor, descriptor_string=desc_string, do_species=do_species, 
+                percentage_med=P_med, min_cluster_size=5, max_iter=15 )
 
 # It is recommended to save the sparse set for further uses/testing parameters
 np.savetxt(dirname + 'improved_sparse_set.txt', custom_sparse, fmt='%i')
