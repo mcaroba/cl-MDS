@@ -53,8 +53,8 @@ dir_medoids = dirname + 'medoids/'
 
 # 2) Compute a custom sparse set using sparsify_module
 import sparsify_module as spmod
-n_sparse = 100 # reference size of the sparse set
-               # (some methods increase/decrease it a bit)
+n_sparse = 1000 # reference size of the sparse set
+                # (some methods increase/decrease it a bit)
 P_med = 40 # approx. percentage of medoids in the sparse set
            # lower it (15-20) for databases with more than 30000 atoms
 # (2.1) only medoids in the sparse set
@@ -72,7 +72,7 @@ custom_sparse = spmod.sparsify_cluster_size( n_sparse, hierarchy[0], atoms=atoms
                 percentage_med=P_med, min_cluster_size=5, max_iter=15 )
 
 # It is recommended to save the sparse set for further uses/testing parameters
-np.savetxt(dirname + 'improved_sparse_set.txt', custom_sparse, fmt='%i')
+np.savetxt('improved_sparse_set.txt', custom_sparse, fmt='%i')
 
 #~~~~~~~~~~ cl-MDS calculations ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Initialize clMDS class passing our own descriptor string
