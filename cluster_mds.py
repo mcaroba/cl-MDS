@@ -483,13 +483,13 @@ class clMDS:
             if not self.has_descriptor:
                 self.build_descriptor()
             descriptor = self.descriptor
-#            if self.descriptor_type == "Unknown":
-#               add descriptor names to this print                                                             <--- comment
+            if self.descriptor_type == "Unknown":
 #                print("")
 #                print("You passed a list of precomputed descriptors (Q). Ignore the following warning if " +
 #                      "they are: soap, soap_turbo")
 #                print("!!! Warning: this definition of distance is valid only when the kernel " +
 #                      "K = (Q Q.T)**zeta is real-valued positive definite.")
+                descriptor = self.descriptor[self.sparse_list]
             if isinstance(self.sparsify, str) and self.sparsify == "cur":
                 sparse_list = np.unique(cur.cur_decomposition(self.descriptor, self.n_sparse)[-1])
                 if self.do_species is not None:

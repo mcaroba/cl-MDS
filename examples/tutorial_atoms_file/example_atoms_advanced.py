@@ -83,7 +83,6 @@ data = clmds.clMDS(atoms=atoms_file, descriptor=descriptor,
 # Parameters available: k-medoids initialization, MDS-related weights
 Y = data.get_sparse_coordinates(hierarchy, init_medoids="isolated", n_iso_med=1,
                                 weight_anchor_mds=2, eta=0)
-np.savetxt("descriptor.dat", data.descriptor)
 C = Y[:,2].astype(int)
 M = data.sparse_medoids
 
@@ -109,16 +108,7 @@ C_estim = Y_estim[:,2].astype(int)
 data.save_to_file(dir=dirname)
 
 # Plot the results
-# 1. Generate the atomic structures corresponding to the medoids (uses ovito)
-data.medoids_to_xyz(dir=dir_medoids, carve_radius=3.5, render=True)
-"""
-You need to manually modify these structures for better results.
-Open the generated medoids xyz files (with the desired radius cutoff) in
-any visualization/analysis program, e.g., ASE (rendering with POVRAY/Blender)
-or VMD.
-"""
-
-# 2. Create the plot
+# 1. Create the plot
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
@@ -130,36 +120,48 @@ ax.scatter(Y[M, 0], Y[M, 1], color='black', label='medoids')
 ax.set_xlabel(r'cl-MDS coordinate 1')
 ax.set_ylabel(r'cl-MDS coordinate 2')
 
-for i in range(0, hierarchy[0]):
-    arr_img = plt.imread(dir_medoids + 'medoid_%i.png' % i, format='png')
-    imagebox = OffsetImage(arr_img, zoom=0.3)
-    imagebox.image.axes = ax
-    cl = data.sparse_clusters[i]
-    if Y[M[i],0] < 0:
-        a = np.min(Y[cl,0]) - 20
-    else:
-        a = np.max(Y[cl,0]) + 30
-    if Y[M[i],1] < 0:
-        b = np.min(Y[cl,1]) - 30
-    else:
-        b = np.max(Y[cl,1]) + 20
-    if i == 0:
-        xy = np.array([a,b])[None,:]
-    else:
-        dist_med = np.sqrt(np.sum((xy - np.array([[a,b]]))**2, axis=1))
-        if (dist_med < 0.1).any():
-            b = -b
-            if a < 0:
-                a += 10
-            else:
-                a -= 10
-        xy = np.concatenate((xy, np.array([a,b])[None,:]) )
-    ab = AnnotationBbox(imagebox, Y[M[i],:2], xybox=(a, b),
-                        xycoords='data',
-                        boxcoords="offset points",
-                        pad=0, frameon=False, arrowprops=dict(arrowstyle="-",
-                        connectionstyle="angle,angleA=0,angleB=90,rad=3"))
-    ax.add_artist(ab)
+# 2. (optional) Generate the atomic structures corresponding to the medoids
+#    using ovito and add them to the plot (only possible with an atoms file)
+if data.atoms is not None:
+    data.medoids_to_xyz(dir=dir_medoids, carve_radius=3.5, render=True)
+#   You can modify these structures manually for better-looking images.
+#   Open the generated medoids xyz files (with the desired radius cutoff) in any
+#   visualization program, e.g., ASE (rendering with POVRAY/Blender) or VMD.
+
+#   This chunk of code adds the medoids images (png) to the plot
+#   _____________________________________________________________________
+    for i in range(0, hierarchy[0]):
+        arr_img = plt.imread(dir_medoids + 'medoid_%i.png' % i, format='png')
+        imagebox = OffsetImage(arr_img, zoom=0.3)
+        imagebox.image.axes = ax
+        cl = data.sparse_clusters[i]
+        if Y[M[i],0] < 0:
+            a = np.min(Y[cl,0]) - 20
+        else:
+            a = np.max(Y[cl,0]) + 30
+        if Y[M[i],1] < 0:
+            b = np.min(Y[cl,1]) - 30
+        else:
+            b = np.max(Y[cl,1]) + 20
+        if i == 0:
+            xy = np.array([a,b])[None,:]
+        else:
+            dist_med = np.sqrt(np.sum((xy - np.array([[a,b]]))**2, axis=1))
+            if (dist_med < 0.1).any():
+                b = -b
+                if a < 0:
+                    a += 10
+                else:
+                    a -= 10
+            xy = np.concatenate((xy, np.array([a,b])[None,:]) )
+        ab = AnnotationBbox(imagebox, Y[M[i],:2], xybox=(a, b),
+                            xycoords='data',
+                            boxcoords="offset points",
+                            pad=0, frameon=False, arrowprops=dict(arrowstyle="-",
+                            connectionstyle="angle,angleA=0,angleB=90,rad=3"))
+        ax.add_artist(ab)
+#   ____________________________________________________________________________
+
 
 plt.legend()
 plt.savefig(dirname + 'clmds_plot_advanced.png', format='png', dpi=300)
