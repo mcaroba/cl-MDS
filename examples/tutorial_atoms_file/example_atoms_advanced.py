@@ -37,11 +37,11 @@ desc_string = {z:'soap_turbo alpha_max={%i %i %i %i %i} l_max=%i rcut_soft=%.2f 
                  for i, z in enumerate(Z)}
 
 # alternative initialization using custom descriptor matrix
-descriptor = np.loadtxt("descriptor.dat") #< custom array of descriptors with shape=(n. desc., dim. desc.) >
-atoms_file = None # default, added to run this file
-do_species = None # default, added to run this file (note that you need to pass 
+## descriptor = np.loadtxt("descriptor.dat") #< custom array of descriptors with shape=(n. desc., dim. desc.) >
+## atoms_file = None # default, added to run this file
+## do_species = None # default, added to run this file (note that you need to pass 
                      # descriptors of only those species you want)
-desc_string = None # default, added to run this file
+## desc_string = None # default, added to run this file
 
 # directories to store the results
 dirname = './results_advanced/'
