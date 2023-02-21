@@ -35,7 +35,7 @@ def kmedoids_divider(descriptor, pts_in_slices=2*10**4, n_medoids=None, percenta
     final_medoids = list()
     for i in range(n_slices):
         if verbose:
-            sys.stdout.write('\rComputing medoids of chunk %i' % (i + 1))
+            sys.stdout.write('\rComputing medoids of chunk %i/%i' % (i + 1, n_slices))
             sys.stdout.flush()
 #       Obtain slice of descriptors
         if i == n_slices - 1:
@@ -52,7 +52,7 @@ def kmedoids_divider(descriptor, pts_in_slices=2*10**4, n_medoids=None, percenta
 #       Compute dist_matrix and pass it to kmedoids
         data = clmds.clMDS(descriptor=work_desc, verbose=verbose)
         data.build_dist_matrix()
-        ind_medoids = km.kMedoids( data.dist_matrix, n_medoids, init_Ms="isolated", n_iso=n_medoids )[0]
+        ind_medoids = km.kMedoids( data.dist_matrix, n_medoids )[0]
         for med in sorted(ind_medoids):
             final_medoids.append(med + index[0])
     if verbose:
@@ -103,7 +103,7 @@ def sparsify_kmedoids(atoms=None, descriptor=None, descriptor_string=None, do_sp
                                           n_medoids=max_n_sparse, output="indices" )
     else:
         data.build_dist_matrix()
-        sparse_med = km.kMedoids( data.dist_matrix, max_n_sparse, init_Ms='isolated', n_iso=max_n_sparse)[0]
+        sparse_med = km.kMedoids( data.dist_matrix, max_n_sparse, init_Ms='isolated', n_iso=2)[0]
     if do_species is not None:
         sparse_med = data.do_species_list[sparse_med]
 
@@ -192,7 +192,7 @@ def sparsify_cluster_size(n_sparse, n_clusters, atoms=None, descriptor=None, des
         data = clmds.clMDS(atoms=atoms, descriptor=descriptor, do_species=do_species,
                            descriptor_string=descriptor_string, sparsify=sparse, verbose=0)
         data.build_dist_matrix()
-        M, C = km.kMedoids( data.dist_matrix, n_clusters, init_Ms='isolated', n_iso=n_clusters)
+        M, C = km.kMedoids( data.dist_matrix, n_clusters, init_Ms='isolated', n_iso=2)
 #       Check how descriptors outside the sparse set are assigned to the clustering    
         data.hierarchy = [n_clusters]
         data.sparse_medoids = M
