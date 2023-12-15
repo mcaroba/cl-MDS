@@ -1,0 +1,17 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: cl-MDS
+message: "If you use this software, please cite it as below."
+authors:
+  - given-names: Miguel A.
+    family-names: Caro
+    orcid: 'https://orcid.org/0000-0001-9304-4261'
+  - given-names: Patricia
+    family-names: Hernández-León
+    orcid: 'https://orcid.org/0000-0002-3402-2553'
+identifiers:
+  - type: url
+    value: 'https://github.com/mcaroba/cl-MDS'
+repository-code: 'https://github.com/mcaroba/cl-MDS'
