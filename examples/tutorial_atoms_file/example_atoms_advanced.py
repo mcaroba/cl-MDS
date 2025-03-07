@@ -91,9 +91,9 @@ M = data.sparse_medoids
 # Needed to calculate cl-MDS again with same hierarchy but different parameters
 # for better clustering, MDS embedding and/or computational speed
 data.cluster_MDS(hierarchy, iter_med=1000, init_medoids="isolated", n_iso_med=2,
-                 n_init_mds_cluster=100, n_jobs_cluster=1, weight_cluster_mds=8,
-                 param_anchor=[80,90,90], n_init_mds_anchor=3500, n_jobs_anchor=1,
-                 n_jobs_cluster=8, n_jobs_anchor=8, weight_anchor_mds=2, eta=0)
+                 n_init_mds_cluster=100, n_jobs_cluster=8, weight_cluster_mds=8,
+                 param_anchor=[80,90,90], n_init_mds_anchor=3500, n_jobs_anchor=8,
+                 weight_anchor_mds=2, eta=0)
 Y = data.sparse_coordinates
 C = data.sparse_cluster_indices
 M = data.sparse_medoids
