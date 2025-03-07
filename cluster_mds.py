@@ -23,6 +23,10 @@
 #                                                                                                           #
 # P. Hernandez-Leon and M.A. Caro, XXX, YYY (2022)                                                          #
 #                                                                                                           #
+# Please cite the following reference too:                                                                  #
+#                                                                                                           #
+# P. Hernandez-Leon and M.A. Caro, Phys. Scr. 99, 066004 (2024)                                             #
+#                                                                                                           #
 #************************************************************************************************************
 
 
@@ -162,9 +166,19 @@ class clMDS:
                 if atoms is None:
                     self.n_env = len(descriptor)
                     self.all_env = len(descriptor)
+                    self.descriptor_type = "Unknown"
+                else:
+                    self.descriptor_string = descriptor_string
+                    self.descriptor_type = 'quippy_' 
+                    if isinstance(descriptor_string, dict):
+                        k = self.species_list[0]
+                        self.descriptor_type += descriptor_string[k].split()[0]
+                    elif isinstance(descriptor_string, str):
+                        self.descriptor_type += descriptor_string.split()[0]
+                    else:
+                        raise Exception("descriptor_string has a wrong type!")
                 self.has_descriptor = True
                 self.descriptor = np.array(descriptor)
-                self.descriptor_type = "Unknown"
             elif descriptor not in implemented_descriptors:
                 raise Exception("The descriptor you chose is not implemented; the options are: ",
                                 implemented_descriptors)
@@ -455,7 +469,11 @@ class clMDS:
     def get_info_string(self, quippy_string, label, type_label=str, is_array=False):
 #       Check if additional descriptors are added                                                             <-- comment
         a = quippy_string.split()[0]
-        if a != self.descriptor_type[7:]:
+        if "compress" in self.descriptor_type:
+            descriptor_type = self.descriptor_type[7:-9]
+        else:
+            descriptor_type = self.descriptor_type[7:]
+        if a != descriptor_type:
             raise Exception("The descriptor string doesn't correspond to the descriptor type, check this.")
         N = len(label)
         a = quippy_string.split('=')
@@ -489,7 +507,11 @@ class clMDS:
 #                      "they are: soap, soap_turbo")
 #                print("!!! Warning: this definition of distance is valid only when the kernel " +
 #                      "K = (Q Q.T)**zeta is real-valued positive definite.")
-                descriptor = self.descriptor[self.sparse_list]
+#               Check if all descriptors are provided, or only those of the sparse set
+                if np.shape(self.descriptor)[0] == self.n_env:
+                    descriptor = self.descriptor[self.sparse_list]
+                else:
+                    descriptor = self.descriptor
             if isinstance(self.sparsify, str) and self.sparsify == "cur":
                 sparse_list = np.unique(cur.cur_decomposition(self.descriptor, self.n_sparse)[-1])
                 if self.do_species is not None:
@@ -748,7 +770,7 @@ class clMDS:
                     raise Exception("Your custom medoids (init_medoids) cannot include atoms \
                                      whose chemical species is other than:", self.do_species)
 #           When used together with sparsification, be sure they are in the sparse set
-            if self.sparsify not in [None, "cur"]:
+            if isinstance(self.sparsify, (list, np.ndarray)) or (self.sparsify not in [None, "cur"]):
                 if not set(init_medoids) <= set(self.sparse_list):
                     self.sparse_list = list( np.unique(self.sparse_list + list(init_medoids)) )
                     self.n_sparse = len(self.sparse_list)
@@ -1651,7 +1673,7 @@ class clMDS:
 
 
 #   This method saves to txt file the requested clMDS attributes
-    def save_to_file(self, dir='./', debug=False):
+    def save_to_file(self, dir='./', save_all=False):
         """
         Save to txt file the main cl-MDS attributes that have been computed, that is:
             self.sparse_list
@@ -1661,7 +1683,7 @@ class clMDS:
             self.estim_coordinates
             self.estim_cluster_indices
         
-        If debug=True, a second file with all attributes related to transformations
+        If save_all=True, a second file with all attributes related to transformations
         and anchor points is created too.
         """
         import os
@@ -1675,13 +1697,20 @@ class clMDS:
             M = np.zeros(self.n_sparse)
             M[self.sparse_medoids] = 1
             with open(dir + 'clmds_results.dat', 'w+') as f:
-                print('i_atoms X_clmds Y_clmds C M', file=f)
+                labels = 'i_atoms X_clmds Y_clmds C M'
+                if save_all:
+                    labels += ' X_local_mds Y_local_mds'
+                print(labels, file=f)
                 for i in range(0, self.n_sparse):
                     if self.verbose:
                         sys.stdout.write('\rSaving results:%6.1f%%' % (float(i)*100./self.n_sparse) )
                         sys.stdout.flush()
-                    print('%i %f %f %i %i' % (self.sparse_list[i], self.sparse_coordinates[i,0],
-                          self.sparse_coordinates[i,1], self.sparse_cluster_indices[i], M[i]), file=f)
+                    line = '%i %f %f %i %i' % (self.sparse_list[i], self.sparse_coordinates[i,0],
+                           self.sparse_coordinates[i,1], self.sparse_cluster_indices[i], M[i])
+                    if save_all:
+                        line += ' %f %f' % (self.local_sparse_coordinates[i,0],
+                                            self.local_sparse_coordinates[i,1])
+                    print(line, file=f)
         else:
             M = np.zeros(self.n_env)
             S = np.zeros(self.n_env)
@@ -1695,7 +1724,7 @@ class clMDS:
                 sparse_list = np.array(self.sparse_list)
             M[sparse_list[self.sparse_medoids]] = 1
             S[sparse_list] = 1
-            with open(dir + 'clmds_results.dat', 'w+') as f:
+            with open(dir + 'clmds_results_estimation.dat', 'w+') as f:
                 print("i_atoms X_clmds Y_clmds C M sparse", file=f)
                 for i in range(0, self.n_env):
                     if self.verbose:
@@ -1703,12 +1732,9 @@ class clMDS:
                         sys.stdout.flush()
                     print('%i %f %f %i %i %i' % (atoms_list[i], self.estim_coordinates[i,0],
                           self.estim_coordinates[i,1], self.estim_cluster_indices[i], M[i], S[i]), file=f)
-        if debug:
+        if save_all:
 #           Save all transformations info
-            with open(dir + 'clmds_debug_data.dat', 'w+') as g:
-                print("all_env n_env n_sparse", file=g)
-                print("%i %i %i" % (self.all_env, self.n_env, self.n_sparse), file=g)
-                g.write(str(self.all_transformations))
+            np.save(dir + 'clmds_debug_data.npy', self.all_transformations)
             
         if self.verbose:
             sys.stdout.write('\rSaving results:%6.1f%%' % (100.) )
@@ -1717,7 +1743,7 @@ class clMDS:
 
 
 
-#   This method writes an extended xyz file with the cl-MDS coordinates
+#   This method writes an extended xyz file with the cl-MDS coordinates and clustering information
     def write_xyz(self, filename=None):
         if filename == None:
             raise Exception("You must define a filename to write to disk")
