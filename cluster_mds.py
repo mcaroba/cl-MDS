@@ -1697,7 +1697,7 @@ class clMDS:
             M = np.zeros(self.n_sparse)
             M[self.sparse_medoids] = 1
             with open(dir + 'clmds_results.dat', 'w+') as f:
-                labels = 'i_atoms X_clmds Y_clmds C M'
+                labels = 'i_atoms X_clmds Y_clmds C M sparse'
                 if save_all:
                     labels += ' X_local_mds Y_local_mds'
                 print(labels, file=f)
@@ -1705,8 +1705,8 @@ class clMDS:
                     if self.verbose:
                         sys.stdout.write('\rSaving results:%6.1f%%' % (float(i)*100./self.n_sparse) )
                         sys.stdout.flush()
-                    line = '%i %f %f %i %i' % (self.sparse_list[i], self.sparse_coordinates[i,0],
-                           self.sparse_coordinates[i,1], self.sparse_cluster_indices[i], M[i])
+                    line = '%i %f %f %i %i %i' % (self.sparse_list[i], self.sparse_coordinates[i,0],
+                           self.sparse_coordinates[i,1], self.sparse_cluster_indices[i], M[i], 1)
                     if save_all:
                         line += ' %f %f' % (self.local_sparse_coordinates[i,0],
                                             self.local_sparse_coordinates[i,1])
