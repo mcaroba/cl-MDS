@@ -1673,7 +1673,7 @@ class clMDS:
 
 
 #   This method saves to txt file the requested clMDS attributes
-    def save_to_file(self, dir='./', save_all=False):
+    def save_to_file(self, dir='./', save_all=False, add_label=None):
         """
         Save to txt file the main cl-MDS attributes that have been computed, that is:
             self.sparse_list
@@ -1710,6 +1710,9 @@ class clMDS:
                     if save_all:
                         line += ' %f %f' % (self.local_sparse_coordinates[i,0],
                                             self.local_sparse_coordinates[i,1])
+                    if add_label:
+#                       check that the user gives as many labels as needed!!!! (here self.n_sparse)
+                        line += ' %s' % (str( add_label[i] ))
                     print(line, file=f)
         else:
             M = np.zeros(self.n_env)
@@ -1730,8 +1733,12 @@ class clMDS:
                     if self.verbose:
                         sys.stdout.write('\rSaving results:%6.1f%%' % (float(i)*100./self.n_sparse))
                         sys.stdout.flush()
-                    print('%i %f %f %i %i %i' % (atoms_list[i], self.estim_coordinates[i,0],
-                          self.estim_coordinates[i,1], self.estim_cluster_indices[i], M[i], S[i]), file=f)
+                    line = '%i %f %f %i %i %i' % (atoms_list[i], self.estim_coordinates[i,0],
+                           self.estim_coordinates[i,1], self.estim_cluster_indices[i], M[i], S[i])
+                    if add_label:
+#                       check that the user gives as many labels as needed!!!! (here self.n_env)
+                        line += ' %s' % (str( add_label[i] ))
+                    print(line, file=f)
         if save_all:
 #           Save all transformations info
             np.save(dir + 'clmds_debug_data.npy', self.all_transformations)
