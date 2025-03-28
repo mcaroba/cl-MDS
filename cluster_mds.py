@@ -1751,6 +1751,9 @@ class clMDS:
                         sys.stdout.flush()
                     line = '%i %f %f %i %i %i' % (atoms_list[i], self.estim_coordinates[i,0],
                            self.estim_coordinates[i,1], self.estim_cluster_indices[i], M[i], S[i])
+                    if save_all:
+                        line += ' %f %f' % (self.estim_local_coordinates[i,0],
+                                            self.estim_local_coordinates[i,1])
                     if add_label:
                         for l in add_label.keys():
                             line += ' %s' % (str( add_label[l][i] ))
