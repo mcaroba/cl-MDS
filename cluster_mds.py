@@ -1693,13 +1693,29 @@ class clMDS:
         if not self.has_clmds:
             raise Exception("No information to save! Compute cl-MDS embedding first.")
 
+#       Manage the labels (first line of the output file)
+        if add_label:
+            try:
+                for key in add_label.keys():
+                    if not self.has_estimation:
+                        assert len(add_label[key]) == self.n_sparse
+                    else:
+                        assert len(add_label[key]) == self.n_env
+            except AssertionError:
+                print("There are not enough labels for all the data, they will not be added.")
+                add_label = None
+
+        labels = 'i_atoms X_clmds Y_clmds C M sparse'
+        if save_all:
+            labels += ' X_local_mds Y_local_mds'
+        if isinstance(add_label, dict):
+            for l in add_label.keys():
+                labels += ' %s' % str(l)
+
         if not self.has_estimation:
             M = np.zeros(self.n_sparse)
             M[self.sparse_medoids] = 1
             with open(dir + 'clmds_results.dat', 'w+') as f:
-                labels = 'i_atoms X_clmds Y_clmds C M sparse'
-                if save_all:
-                    labels += ' X_local_mds Y_local_mds'
                 print(labels, file=f)
                 for i in range(0, self.n_sparse):
                     if self.verbose:
@@ -1711,8 +1727,8 @@ class clMDS:
                         line += ' %f %f' % (self.local_sparse_coordinates[i,0],
                                             self.local_sparse_coordinates[i,1])
                     if add_label:
-#                       check that the user gives as many labels as needed!!!! (here self.n_sparse)
-                        line += ' %s' % (str( add_label[i] ))
+                        for l in add_label.keys():
+                            line += ' %s' % (str( add_label[l][i] ))
                     print(line, file=f)
         else:
             M = np.zeros(self.n_env)
@@ -1728,7 +1744,7 @@ class clMDS:
             M[sparse_list[self.sparse_medoids]] = 1
             S[sparse_list] = 1
             with open(dir + 'clmds_results_estimation.dat', 'w+') as f:
-                print("i_atoms X_clmds Y_clmds C M sparse", file=f)
+                print(labels, file=f)
                 for i in range(0, self.n_env):
                     if self.verbose:
                         sys.stdout.write('\rSaving results:%6.1f%%' % (float(i)*100./self.n_sparse))
@@ -1736,8 +1752,8 @@ class clMDS:
                     line = '%i %f %f %i %i %i' % (atoms_list[i], self.estim_coordinates[i,0],
                            self.estim_coordinates[i,1], self.estim_cluster_indices[i], M[i], S[i])
                     if add_label:
-#                       check that the user gives as many labels as needed!!!! (here self.n_env)
-                        line += ' %s' % (str( add_label[i] ))
+                        for l in add_label.keys():
+                            line += ' %s' % (str( add_label[l][i] ))
                     print(line, file=f)
         if save_all:
 #           Save all transformations info
