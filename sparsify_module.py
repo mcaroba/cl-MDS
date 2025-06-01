@@ -1,3 +1,34 @@
+#************************************************************************************************************
+# This is the cluster-based MultiDimensional Scaling code for dimensionality reduction data analysis.       #
+#                                                                                                           #
+#                                                cl-MDS                                                     #
+#                                                                                                           #
+# This code has been written and is copyright (c) 2018-2022 of the following authors:                       #
+#                                                                                                           #
+# *) Patricia Hernandez-Leon                                                                                #
+# *) Miguel A. Caro
+# *) Jan Kloppenburg                                                                                         #
+#                                                                                                           #
+# from the Department of Electrical Engineering and Automation, Aalto University, Finland                   #
+#                                                                                                           #
+#                                                                                                           #
+# See the file LICENSE.md for license information and the README.md file for practical installation         #
+# instructions and usage examples. The official code repository is                                          #
+#                                                                                                           #
+#                                   https://github.com/mcaroba/cl-MDS                                       #
+#                                                                                                           #
+# Visit the repository for the latest version of this distribution.                                         #
+#                                                                                                           #
+#                                                                                                           #
+# If you use cl-MDS for the compilation of academic/scientific/technical work, please cite, as appropriate: #
+#                                                                                                           #
+# P. Hernandez-Leon and M.A. Caro, XXX, YYY (2022)                                                          #
+#                                                                                                           #
+# Please cite the following reference too:                                                                  #
+#                                                                                                           #
+# P. Hernandez-Leon and M.A. Caro, Phys. Scr. 99, 066004 (2024)                                             #
+#                                                                                                           #
+#************************************************************************************************************
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # This file is a supporting module with advanced sparsify methods,
 # based on cluster MDS and fast-kmedoids functionalities.
@@ -67,18 +98,23 @@ def kmedoids_divider(descriptor, pts_in_slices=2*10**4, n_medoids=None, percenta
 # for bigger descriptor matrices (atoms files)
 def sparsify_kmedoids(atoms=None, descriptor=None, descriptor_string=None, do_species=None,
                       max_n_sparse=3000, run_divider=3*10**4, pts_in_slices=2*10**4, 
-                      percentage_med=20):
+                      percentage_med=20, return_clusters=False):
     """
     INPUT-----------
       (i) an atoms_file + implemented descriptor name(*), or
       (ii) a descriptor matrix with shape = (n. of descriptors, dim. of descriptors)
 
     Other parameters:
+       *do_species = list of str, None(default)
+                     Selection of chemical species to be considered, e.g., ['H','C'] 
+                     If None, all species in atoms are taken into account.
        *max_n_sparse: maximum number of descriptors in the sparse set
        *run_divider: gives the maximum amount of descriptors used in a single kmedoids calculation.
                      If the total amount is bigger, kmedoids_divider is used.
        *pts_in_slices: an estimate of the size of the slices
        *percentage_med: percentage of sparse points that are computed as medoids.
+       *return_clusters: if True, output includes a list with cluster indices for all
+                         atoms involved 
 
     OUTPUT----------
        (i, ii) array with the sparse indices of length <= max_n_sparse
@@ -104,8 +140,20 @@ def sparsify_kmedoids(atoms=None, descriptor=None, descriptor_string=None, do_sp
     else:
         data.build_dist_matrix()
         sparse_med = km.kMedoids( data.dist_matrix, max_n_sparse, init_Ms='isolated', n_iso=2)[0]
+    data.sparse_medoids = sparse_med
     if do_species is not None:
         sparse_med = data.do_species_list[sparse_med]
+    if return_clusters:
+        n_medoids = len(sparse_med)
+        data.sparse_list = list(np.array(data.sparse_list)[data.sparse_medoids])
+        data.sparse_cluster_indices = np.arange(0, n_medoids, 1)
+        data.sparse_medoids = np.arange(0, n_medoids, 1)
+        data.hierarchy = [n_medoids,1]
+        if do_species is None:
+            data.do_species_list = np.arange(0, data.n_env, 1) 
+        cluster_ind = data.assign_atoms_to_cluster(indices=data.do_species_list, precision=1e-8, out_descriptor=False)
+
+        return sparse_med, cluster_ind, data.do_species_list
 
     return sparse_med
 
