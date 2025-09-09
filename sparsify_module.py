@@ -96,9 +96,9 @@ def kmedoids_divider(descriptor, pts_in_slices=2*10**4, n_medoids=None, percenta
 
 # This method obtains a sparse set containing only medoids, using kmedoids_divider 
 # for bigger descriptor matrices (atoms files)
-def sparsify_kmedoids(atoms=None, descriptor=None, descriptor_string=None, do_species=None,
-                      max_n_sparse=3000, run_divider=3*10**4, pts_in_slices=2*10**4, 
-                      percentage_med=20, return_clusters=False):
+def sparsify_kmedoids(atoms=None, descriptor=None, cutoff=None, descriptor_string=None,
+                      do_species=None, max_n_sparse=3000, run_divider=3*10**4, 
+                      pts_in_slices=2*10**4, percentage_med=20, return_clusters=False):
     """
     INPUT-----------
       (i) an atoms_file + implemented descriptor name(*), or
@@ -123,7 +123,7 @@ def sparsify_kmedoids(atoms=None, descriptor=None, descriptor_string=None, do_sp
     (*) implemented_descriptors = ["quippy_soap","quippy_soap_turbo","quippy_soap_turbo_compress"]
     """
     data = clmds.clMDS(atoms=atoms, descriptor=descriptor, do_species=do_species,
-                       descriptor_string=descriptor_string)
+                       cutoff=cutoff, descriptor_string=descriptor_string)
     if isinstance(descriptor, str):
         data.build_descriptor()    
     Q = data.descriptor
@@ -161,7 +161,7 @@ def sparsify_kmedoids(atoms=None, descriptor=None, descriptor_string=None, do_sp
 # This method computes a sparse set combining medoids and random descriptors, with a ratio
 # given by percentage_med (percentage of medoids included in the sparse set).
 def sparsify_rand_and_kmedoids(n_sparse, atoms=None, descriptor=None, descriptor_string=None,
-                               do_species=None, percentage_med=20):
+                               cutoff=None, do_species=None, percentage_med=20):
     """
     INPUT-----------
       (i) an atoms_file + implemented descriptor name(*), or
@@ -179,10 +179,10 @@ def sparsify_rand_and_kmedoids(n_sparse, atoms=None, descriptor=None, descriptor
     """
 #   Obtain medoids for the sparse set
     n_sparse_med = n_sparse*percentage_med // 100
-    sparse_med = sparsify_kmedoids(atoms=atoms, descriptor=descriptor, do_species=do_species,
+    sparse_med = sparsify_kmedoids(atoms=atoms, descriptor=descriptor, do_species=do_species, cutoff=cutoff,
                                    descriptor_string=descriptor_string, max_n_sparse=n_sparse_med)
 #   Fill the rest of the sparse set with random descriptors
-    data = clmds.clMDS(atoms=atoms, descriptor=descriptor, do_species=do_species,
+    data = clmds.clMDS(atoms=atoms, descriptor=descriptor, do_species=do_species, cutoff=cutoff,
                      descriptor_string=descriptor_string)
     I = np.arange(0, data.n_env, 1)
     if do_species is not None:
@@ -201,7 +201,7 @@ def sparsify_rand_and_kmedoids(n_sparse, atoms=None, descriptor=None, descriptor
 # by guaranteeing a minimum cluster size for a specific sparse clustering.
 # *** Especially helpful to optimize cluster MDS results ***
 def sparsify_cluster_size(n_sparse, n_clusters, atoms=None, descriptor=None, descriptor_string=None,
-                          do_species=None, percentage_med=20, min_cluster_size=5, max_iter=15):
+                          cutoff=None, do_species=None, percentage_med=20, min_cluster_size=5, max_iter=15):
     """
     INPUT-----------
       (i) an atoms_file + implemented descriptor name(*), or
@@ -225,7 +225,7 @@ def sparsify_cluster_size(n_sparse, n_clusters, atoms=None, descriptor=None, des
     print("                                                        ")
     print("              OBTAINING INITIAL SPARSE SET              ")
     print("________________________________________________________")
-    sparse = sparsify_rand_and_kmedoids(n_sparse, atoms=atoms, descriptor=descriptor, 
+    sparse = sparsify_rand_and_kmedoids(n_sparse, atoms=atoms, descriptor=descriptor, cutoff=cutoff,
                                         do_species=do_species, descriptor_string=descriptor_string,
                                         percentage_med=percentage_med)
     L_init = len(sparse)
@@ -237,7 +237,7 @@ def sparsify_cluster_size(n_sparse, n_clusters, atoms=None, descriptor=None, des
     n = 0
     while not improved_sparse and n < max_iter:
 #       Compute a new clustering for the updated sparse set
-        data = clmds.clMDS(atoms=atoms, descriptor=descriptor, do_species=do_species,
+        data = clmds.clMDS(atoms=atoms, descriptor=descriptor, do_species=do_species, cutoff=cutoff,
                            descriptor_string=descriptor_string, sparsify=sparse, verbose=0)
         data.build_dist_matrix()
         M, C = km.kMedoids( data.dist_matrix, n_clusters, init_Ms='isolated', n_iso=2)
