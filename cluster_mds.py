@@ -29,7 +29,7 @@
 #                                                                                                           #
 #************************************************************************************************************
 
-
+print('hello')
 # Import dependencies
 import numpy as np
 from sklearn_mds import _mds
