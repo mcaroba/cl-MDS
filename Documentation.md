@@ -2,6 +2,19 @@
 
 cl-MDS is a cluster-based multidimensional scaling tool for visualizing high-dimensional data in low-dimensional space. (refer to the paper for a detailed description of the embedding technique)
 
+Cluster MDS or cl-MDS is a general dimensionality reduction tool for embedding high-dimensional data in 2-dimensional space, developed for visualization purposes.  
+For further details on the embedding technique, please check the original paper: [P. Hernández-León, M. A. Caro, *Phys. Scr.* **99** 066004 (2024)](https://iopscience.iop.org/article/10.1088/1402-4896/ad432e).
+
+
+The `clmds` package (**not true (yet)**) includes a wide range of features related to: 
+- *clustering*: 
+- *sparsification*: 
+- *dimensionality reduction*: generation of 
+- *visualization*: the motivation behind cl-MDS. It includes plot generation, visualization of representative data (i.e., carving medoids out)
+- *functionality specific to atomic databases*: reading/writing in extended xyz files, computation of atomic descriptors, 
+
+This package relies on the `fast-kmedoids` repository and a slightly modified version of the `sklearn` package to build an algorithm that combines the k-medoids clustering technique with multidimensional scaling (MDS). This enhances the performance of MDS for bigger and more complex databases, such as (but not limited to) atomistic ones.
+
 ---
 
 # Installation and Prerequisites
