@@ -39,12 +39,12 @@ Add the root directory to your Python path:
     echo "export PYTHONPATH=$(pwd):\$PYTHONPATH" >> ~/.bashrc
     source ~/.bashrc
 
-### Basic Example  
+## Basic Example  
 Check examples/ folder (we will add more here and there soon).
 For atomic databases, check examples/tutorial\_atoms\_file/ folder.
 
 
-### Advanced features
+## Advanced features
 __Customized sparse set__
 
 __Using an existing clustering__
@@ -54,10 +54,27 @@ __Hierarchical clustering__
 __Adding data to an existing cl-MDS map__
 
 
-### Attribution
+## Attribution
 
 If you use **cl-MDS**, please provide a link to this GitHub repository and cite:
 
 >**Patricia Hernández-León, Miguel A. Caro**. *Cluster-based multidimensional
 >scaling embedding tool for data visualization*. [Phys. Scr. 99 066004
 >(2024)](https://iopscience.iop.org/article/10.1088/1402-4896/ad432e).
+
+## Ongoing development:
+
+- Packaging:
+    - [ ] requirements for conda/mamba env
+-  Documentation:
+    - [ ] update current tutorials in Jupyter notebook
+    - [ ] write documentation file
+- Functionalities:
+    - upgrade of existing features:
+        - [ ] carving medoids out (i.e., representative atomic env.)
+        - [ ] saving medoids
+        - [ ] plotting clMDS data (gnuplot)
+    - [ ] add plots with matplotlib
+    - [ ] alternative hierarchy implementation
+- Tests: 
+ 
