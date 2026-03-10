@@ -1,3 +1,6 @@
 [submodule "fast-kmedoids"]
 	path = fast-kmedoids
 	url = http://github.com/mcaroba/fast-kmedoids
+[submodule "ase_tools"]
+	path = ase_tools
+	url = https://github.com/mcaroba/ase_tools
