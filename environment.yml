@@ -1,0 +1,22 @@
+name: clmds-ovito-dev
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.9,<3.14
+  - numpy
+  - scipy
+  - scikit-learn
+  - matplotlib
+# jupyter examples
+  - ipykernel
+  - umap-learn
+# build cl-MDS
+  - charset-normalizer
+  - meson
+  - ninja
+# atomistic applications
+  - ase
+  - pip
+  - pip:
+    - quippy-ase
+    - ovito
